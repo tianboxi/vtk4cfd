@@ -1,0 +1,6 @@
+*.pyc
+
+# for mac users
+*.DS_Store
+
+tags

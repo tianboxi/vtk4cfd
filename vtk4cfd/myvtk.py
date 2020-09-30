@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 import vtk
-import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib import rcParams
 import numpy as np
-import mytool as mt
 from vtk.util.numpy_support import vtk_to_numpy
 from scipy.interpolate import griddata
 import math
 import math as m
 import os
+
+import vtk4cfd.mytool as mt
 
 
 """
@@ -326,53 +327,53 @@ def AddNewArray(source,array,name):
   source.GetOutput().GetPointData().AddArray(newarray)
   return source
 
-def CalcQuantities(source):
-  calc = vtk.vtkArrayCalculator()
-  omega = 1200
-  omega = omega*2*math.pi/60
-  calc.SetInputConnection(source.GetOutputPort())
-  calc.AddVectorArrayName('Momentum')
-  calc.AddScalarArrayName('Density')
-  calc.SetResultArrayName('Velocity')
-  calc.SetFunction('Momentum/Density')
-  calc.Update()
-  source = calc
-  nodes = vtk_to_numpy(GetNodes(source))
-  v = vtk_to_numpy(GetArray(source,'Velocity'))
-  N = len(v) 
-  cylnodes = np.empty([N,3])
-  cylnodes[:,2] = nodes[:,2]
-  CylVelocity = np.empty([N,3])
-  CylVelocity[:,2] = v[:,2]
-  RelVelocity = np.empty([N,3])
-  RelVelocity[:,2] = v[:,2]
-  RelCylVelocity = np.empty([N,3])
-  RelCylVelocity[:,2] = v[:,2]
-  for j in range(N):
-    x,y,z = nodes[j,0], nodes[j,1], nodes[j,2]
-    r = math.sqrt(math.pow(x,2)+math.pow(y,2))
-    cylnodes[j,0] = r
-    if y>=0:
-      theta = math.acos(x/r)
-    elif y<0:
-      theta = 2*math.pi - math.acos(x/r)
-    cylnodes[j,1] = theta
-  rary = cylnodes[:,0]
-  vx,vy,vz = v[:,0], v[:,1], v[:,2]
-  vr = np.cos(theta)*vx + np.sin(theta)*vy
-  vt = -1*np.sin(theta)*vx + np.cos(theta)*vy
-  wt = vt + omega*rary
-  wx = np.cos(theta)*vr-np.sin(theta)*wt
-  wy = np.sin(theta)*vr+np.cos(theta)*wt
-  Velocity = v
-  CylVelocity[:,0],CylVelocity[:,1] = vr, vt
-  RelVelocity[:,0],RelVelocity[:,1] = wx, wy
-  RelCylVelocity[:,0],RelCylVelocity[:,1] = vr, wt
-  KineticEng = np.power(vx,2)+np.power(vy,2)+np.power(vz,2)
-  Energy = vtk_to_numpy(GetArray(source,'Energy'))
-  TEnthalpy = Energy+1.0/2*KineticEng 
-  returnlist = [nodes, cylnodes, Velocity, CylVelocity, RelVelocity, RelCylVelocity, TEnthalpy]
-  return returnlist
+#def CalcQuantities(source):
+#  calc = vtk.vtkArrayCalculator()
+#  omega = 1200
+#  omega = omega*2*math.pi/60
+#  calc.SetInputConnection(source.GetOutputPort())
+#  calc.AddVectorArrayName('Momentum')
+#  calc.AddScalarArrayName('Density')
+#  calc.SetResultArrayName('Velocity')
+#  calc.SetFunction('Momentum/Density')
+#  calc.Update()
+#  source = calc
+#  nodes = vtk_to_numpy(GetNodes(source))
+#  v = vtk_to_numpy(GetArray(source,'Velocity'))
+#  N = len(v) 
+#  cylnodes = np.empty([N,3])
+#  cylnodes[:,2] = nodes[:,2]
+#  CylVelocity = np.empty([N,3])
+#  CylVelocity[:,2] = v[:,2]
+#  RelVelocity = np.empty([N,3])
+#  RelVelocity[:,2] = v[:,2]
+#  RelCylVelocity = np.empty([N,3])
+#  RelCylVelocity[:,2] = v[:,2]
+#  for j in range(N):
+#    x,y,z = nodes[j,0], nodes[j,1], nodes[j,2]
+#    r = math.sqrt(math.pow(x,2)+math.pow(y,2))
+#    cylnodes[j,0] = r
+#    if y>=0:
+#      theta = math.acos(x/r)
+#    elif y<0:
+#      theta = 2*math.pi - math.acos(x/r)
+#    cylnodes[j,1] = theta
+#  rary = cylnodes[:,0]
+#  vx,vy,vz = v[:,0], v[:,1], v[:,2]
+#  vr = np.cos(theta)*vx + np.sin(theta)*vy
+#  vt = -1*np.sin(theta)*vx + np.cos(theta)*vy
+#  wt = vt + omega*rary
+#  wx = np.cos(theta)*vr-np.sin(theta)*wt
+#  wy = np.sin(theta)*vr+np.cos(theta)*wt
+#  Velocity = v
+#  CylVelocity[:,0],CylVelocity[:,1] = vr, vt
+#  RelVelocity[:,0],RelVelocity[:,1] = wx, wy
+#  RelCylVelocity[:,0],RelCylVelocity[:,1] = vr, wt
+#  KineticEng = np.power(vx,2)+np.power(vy,2)+np.power(vz,2)
+#  Energy = vtk_to_numpy(GetArray(source,'Energy'))
+#  TEnthalpy = Energy+1.0/2*KineticEng 
+#  returnlist = [nodes, cylnodes, Velocity, CylVelocity, RelVelocity, RelCylVelocity, TEnthalpy]
+#  return returnlist
 
 # Rendering process 
 def ColorTransferFun(data,cl=[0.6,0.6,0.6],name=None,component=None):
@@ -594,7 +595,7 @@ def Streamline(source,name,point,srctype='ptsource'):
   return actor
 
 def AxisymmetricContour(source,name,component=0,ax=None,Z=None,X=None,n=None):
-  matplotlib.rcParams['contour.negative_linestyle'] = 'solid'
+  rcParams['contour.negative_linestyle'] = 'solid'
   source = SetActiveData(source,name,component)
   planeyz = CreatePlaneFunction([0,0,6],[1,0,0])
   planexz = CreatePlaneFunction([0,0,6],[0,-1,0])
