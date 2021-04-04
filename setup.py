@@ -19,11 +19,11 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-            'vtk>=8.0',
-            'numpy>=1.16',
-            'scipy>=1.5',
+    #        'vtk>=8.0',
+    #        'numpy>=1.16',
+    #        'scipy>=1.2',
 
     ],
-    python_requires='>=3.6',
+    python_requires='>=2.7',
 
 )

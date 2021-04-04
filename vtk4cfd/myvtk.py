@@ -211,9 +211,10 @@ def Clip(inputdata, clipfunction):
   return clipper
 
 #Cutting dataset
-def Cut(inputconnection, cutfunction):
+def Cut(inputconnection, cutfunction, tri=True):
   cutter = vtk.vtkCutter()
   cutter.SetInputConnection(inputconnection.GetOutputPort())
+  cutter.SetGenerateTriangles(tri)
   cutter.SetCutFunction(cutfunction)
   cutter.Update()
   return cutter
@@ -274,6 +275,30 @@ def CtoP(source):
 def GetVector(scource):
   vector = scource.GetOutput().GetPointData().GetVectors()
   return vector
+
+def GetCellVolume(source):
+  quality = vtk.vtkMeshQuality()
+  quality.SetInputData(source.GetOutput())
+  quality.SetHexQualityMeasureToVolume()
+  quality.Update()
+  vol = quality.GetOutput().GetCellData().GetArray('Quality')
+  return vol
+
+def GetTriangles(source):
+  '''
+  Get triangle vertex indices from a vtkPolydata (for example a surface cut)
+  '''
+  polydata = source.GetOutput()
+  ncell = polydata.GetNumberOfCells()
+  conn = []
+  for i in range(ncell):
+     thisCell = polydata.GetCell(i)
+     thisInd = []
+     for j in range(3):
+        thisInd.append(thisCell.GetPointId(j))
+     conn.append(thisInd)
+
+  return conn
 
 # Data processing within vtkDataSet
 def ArrayMag( source  ,
