@@ -257,9 +257,22 @@ def GetNodesOnAxialPlane(source, axial_loc):
       node_array = np.append(node_array,nodei_np,axis=0)
   return node_array
       
-def GetArray(source,index):
-  fielddata = source.GetOutput().GetPointData().GetArray(index)
-  return fielddata
+def GetArray(source,name,component=None, mag=False):
+  array = source.GetOutput().GetPointData().GetArray(name)
+  if array.GetNumberOfComponents()>1:
+    source = ArrayMag(source,name)
+    arraymag = source.GetOutput().GetPointData().GetArray(name+'-Magnitude') 
+    if component:
+      source = ExtractArrayComponent2(source,name,component)
+      data = source.GetOutput().GetPointData().GetArray(name+'-'+NToXYZ(component))
+    elif mag:
+      data = source.GetOutput().GetPointData().GetArray(name+'-Magnitude')
+    else:
+      data = array
+  else:
+    data = array
+  return data 
+
 def GetCArray(source,index):
   fielddata = source.GetOutput().GetCellData().GetArray(index)
   return fielddata
