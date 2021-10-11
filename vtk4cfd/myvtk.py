@@ -17,7 +17,7 @@ VTK function library
 
 Developer:
 -------------------
-- Raye Tianbo Xie
+- Raye Tianbo Xie (Tianboxi@usc.edu)
 
 """
 
@@ -92,14 +92,14 @@ def ReadVTKFile( filename ):
   reader.Update()
   return reader
 
-def ReadTestCase( casename ,
-                  zone     ,
-		  time     ,
-		  dt=None   ):
-  TestCaseRoot='/home/tianboxi/SU2/Testcases'
-  filepath=TestCaseRoot+'/'+casename+'/'+'flow_'+str(zone)+'_'+time+'.vtk'
-  reader = ReadVTKFile(filepath)
-  return reader
+#def ReadTestCase( casename ,
+#                  zone     ,
+#		  time     ,
+#		  dt=None   ):
+#  TestCaseRoot='/home/tianboxi/SU2/Testcases'
+#  filepath=TestCaseRoot+'/'+casename+'/'+'flow_'+str(zone)+'_'+time+'.vtk'
+#  reader = ReadVTKFile(filepath)
+#  return reader
 
 def CombineZones( zone1      ,
                   zone2      ,
@@ -121,6 +121,21 @@ def appendDom( dom , append=None):
   append.AddInputData(dom.GetOutput())
   append.Update()
   return append
+
+def combineDom( domlist):
+  append = vtk.vtkAppendFilter()
+  for dom in domlist:
+     append.AddInputData(dom.GetOutput())
+  append.Update()
+  return append
+
+def threshold(source, scalarname, trange):
+   source.GetOutput().GetCellData().SetActiveScalars(scalarname)
+   threshold = vtk.vtkThreshold()
+   threshold.SetInputData(source.GetOutput())
+   threshold.ThresholdBetween(trange[0],trange[1])
+   threshold.Update()
+   return threshold
 
 def NToXYZ( n ):
   if n==0:
@@ -273,18 +288,32 @@ def GetArray(source,name,component=None, mag=False):
     data = array
   return data 
 
+def GetPArray(source,index):
+  fielddata = source.GetOutput().GetPointData().GetArray(index)
+  return fielddata
+
+def RemovePArray(source,index):
+  fielddata = source.GetOutput().GetPointData().RemoveArray(index)
+  return source 
+
 def GetCArray(source,index):
   fielddata = source.GetOutput().GetCellData().GetArray(index)
   return fielddata
+
+def RemoveCArray(source,index):
+  fielddata = source.GetOutput().GetCellData().RemoveArray(index)
+  return source 
+
 def GetScalar(source):
   scalar = source.GetOutput().GetPointData().GetScalars()
   return scalar
-  """ Convert cell data to pointdata """
+
 def CtoP(source):
   celltopoint = vtk.vtkCellDataToPointData()
   celltopoint.SetInputConnection(source.GetOutputPort())
   celltopoint.Update()
   return celltopoint
+
 def GetVector(scource):
   vector = scource.GetOutput().GetPointData().GetVectors()
   return vector
@@ -313,6 +342,24 @@ def GetTriangles(source):
 
   return conn
 
+def GetFeatureEdges(source, featureEdge=False):
+  fedge = vtk.vtkFeatureEdges()
+  fedge.SetInputConnection(source.GetOutputPort())
+  fedge.BoundaryEdgesOn()
+  if featureEdge:
+     fedge.FeatureEdgesOn()
+  else:
+     fedge.FeatureEdgesOff()
+  fedge.ManifoldEdgesOff()
+  fedge.Update()
+  return fedge
+
+def GetEdges(source):
+  edge = vtk.vtkExtractEdges()
+  edge.SetInputConnection(source.GetOutputPort())
+  edge.Update()
+  return edge
+
 # Data processing within vtkDataSet
 def ArrayMag( source  ,
               name     ):
@@ -323,6 +370,8 @@ def ArrayMag( source  ,
   mag.SetFunction('mag('+name+')')
   mag.Update()
   return mag
+
+
 def ExtractArrayComponent( source   ,
                            name     ,
 			   component ):
@@ -414,6 +463,7 @@ def AddNewArray(source,array,name):
 #  return returnlist
 
 # Rendering process 
+
 def ColorTransferFun(data,cl=[0.6,0.6,0.6],name=None,component=None):
   #Get range of scalar
   if name:
@@ -940,11 +990,13 @@ def ConvertToPoly(data):
    polyfilter.SetInputData(data.GetOutput())
    polyfilter.Update()
    return polyfilter
+
 def WriteVTKFile(data,filename):
    writer = vtk.vtkPolyDataWriter()
    writer.SetInputData(data.GetOutput())
    writer.SetFileName(filename)
    writer.Update()
+
 def WriteVTKGridFile(data,filename):
    writer = vtk.vtkUnstructuredGridWriter()
    writer.SetInputData(data.GetOutput())
