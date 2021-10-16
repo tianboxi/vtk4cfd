@@ -326,7 +326,7 @@ def GetCellVolume(source):
   vol = quality.GetOutput().GetCellData().GetArray('Quality')
   return vol
 
-def GetTriangles(source):
+def GetTriangles(source, neighbor=False):
   '''
   Get triangle vertex indices from a vtkPolydata (for example a surface cut)
   '''
@@ -338,11 +338,38 @@ def GetTriangles(source):
      thisInd = []
      for j in range(3):
         thisInd.append(thisCell.GetPointId(j))
+     #if neighbor:
+     #   ncellids = vtk.vtkIdList()
+     #   #ptids = vtk.vtkIdList()
+     #   #ptids.InsertNextId(thisCell.GetPointId(0))
+     #   #ptids.InsertNextId(thisCell.GetPointId(1))
+     #   ptid1 = thisCell.GetPointId(0)
+     #   ptid2 = thisCell.GetPointId(1)
+     #   polydata.GetCellEdgeNeighbors(i, ptid1, ptid2, ncellids)
+     #   print(ncellids)
+     #   if i == 10 or i==20:
+     #      print(ncellids) 
      conn.append(thisInd)
 
-  return conn
+  if neighbor:
+     return conn, neighbor
+  else:
+     return conn
+
+def AddPointID(source):
+  idfilter = vtk.vtkIdFilter()
+  idfilter.SetInputConnection(source.GetOutputPort())
+  idfilter.SetIdsArrayName("ptids")
+  idfilter.SetPointIds(True)
+  idfilter.SetCellIds(False)
+  idfilter.Update()
+  return idfilter
 
 def GetFeatureEdges(source, featureEdge=False):
+
+  npt = source.GetOutput().GetNumberOfPoints()
+  print('number of points: ', npt)
+  source = AddPointID(source)
   fedge = vtk.vtkFeatureEdges()
   fedge.SetInputConnection(source.GetOutputPort())
   fedge.BoundaryEdgesOn()
@@ -351,8 +378,23 @@ def GetFeatureEdges(source, featureEdge=False):
   else:
      fedge.FeatureEdgesOff()
   fedge.ManifoldEdgesOff()
+  fedge.NonManifoldEdgesOff()
   fedge.Update()
-  return fedge
+  nline = fedge.GetOutput().GetLines().GetNumberOfCells()
+  edge_ids = []
+  for ii in range(nline):
+     ptidlist = vtk.vtkIdList()
+     fedge.GetOutput().GetLines().GetCellAtId(ii, ptidlist)
+     this_edge_ids = [ptidlist.GetId(0), ptidlist.GetId(1)]
+     edge_ids.append(this_edge_ids)
+  pts = vtk_to_numpy(fedge.GetOutput().GetPoints().GetData())
+  edge_pts = []
+  for edge in edge_ids:
+     this_edge_pts = [pts[edge[0]], pts[edge[1]]]
+     edge_pts.append(this_edge_pts)
+  #n = fedge.GetOutput().GetNumberOfPoints()
+  #print('number of boundary points: ', n)
+  return edge_pts 
 
 def GetEdges(source):
   edge = vtk.vtkExtractEdges()
@@ -652,7 +694,7 @@ def Glyph(source,cl,name,params=[500,0.11],scalebyvectoron=0):
   actor = CreateActor(mapper)
   return actor
 
-def Streamline(source,name,point,srctype='ptsource'):
+def Streamline(source,name,point,idir='both',srctype='singlept',maxlength=1000.0, planar=False):
   source = SetActiveData(source,name)
   tracer = vtk.vtkStreamTracer()
   tracer.SetInputConnection(source.GetOutputPort())
@@ -660,27 +702,40 @@ def Streamline(source,name,point,srctype='ptsource'):
     tracer.SetSourceConnection(point.GetOutputPort())
   elif srctype == 'singlept':
     tracer.SetStartPosition(point)
-  tracer.SetIntegrationDirectionToBoth()
+  if idir == 'both':
+     tracer.SetIntegrationDirectionToBoth()
+  elif idir == 'forward': 
+     tracer.SetIntegrationDirectionToForward()
+  else:
+     tracer.SetIntegrationDirectionToBackward()
+
+  tracer.SetMaximumPropagation(maxlength)
   tracer.SetIntegratorTypeToRungeKutta45()
-  tracer.SetInitialIntegrationStep(0.001)
-  tracer.SetMaximumIntegrationStep(0.01)
-  tracer.SetMinimumIntegrationStep(0.0001)
-  tracer.SetMaximumPropagation(0.4)
+  if planar:
+     tracer.SetSurfaceStreamlines(True)
+  else:
+     tracer.SetSurfaceStreamlines(False)
+  #tracer.SetInitialIntegrationStep(0.0001)
+  #tracer.SetMinimumIntegrationStep(0.00001)
+  #tracer.SetMaximumIntegrationStep(0.001)
+  tracer.SetMaximumPropagation(maxlength)
   tracer.Update()
 
-  tube = vtk.vtkTubeFilter()
-  tube.SetInputConnection(tracer.GetOutputPort())
-  tube.SetRadius(0.005)
-  tube.CappingOn()
-  tube.SetNumberOfSides(6)
-  cl = [0.6,0.6,0.6] 
-  cm = ColorTransferFun(source,cl,name)
-  mapper = vtk.vtkPolyDataMapper()
-  mapper.SetInputConnection(tube.GetOutputPort())
-  mapper.SelectColorArray(name+'-Magnitude')
-  mapper.SetLookupTable(cm)
-  actor = CreateActor(mapper)
-  return actor
+  #tube = vtk.vtkTubeFilter()
+  #tube.SetInputConnection(tracer.GetOutputPort())
+  #tube.SetRadius(0.005)
+  #tube.CappingOn()
+  #tube.SetNumberOfSides(6)
+  #cl = [0.6,0.6,0.6] 
+  #cm = ColorTransferFun(source,cl,name)
+  #mapper = vtk.vtkPolyDataMapper()
+  #mapper.SetInputConnection(tube.GetOutputPort())
+  #mapper.SelectColorArray(name+'-Magnitude')
+  #mapper.SetLookupTable(cm)
+  #actor = CreateActor(mapper)
+
+  sline_coord = vtk_to_numpy(GetNodes(tracer))
+  return sline_coord 
 
 def AxisymmetricContour(source,name,component=0,ax=None,Z=None,X=None,n=None):
   rcParams['contour.negative_linestyle'] = 'solid'

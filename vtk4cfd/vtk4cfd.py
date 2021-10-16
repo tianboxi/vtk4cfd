@@ -1,11 +1,14 @@
 import numpy as np
 import vtk4cfd.myvtk as mv
+import vtk4cfd.utils as utils
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import matplotlib.tri as tri
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from vtk.util.numpy_support import vtk_to_numpy
 from scipy.interpolate import griddata
+from collections import Counter
+import copy
 import math
 import math as m
 import os
@@ -33,8 +36,7 @@ class Grid():
       self.data = None
       self.drange = {}
       # if this is an overset grid
-      if 'overset' in options:
-         overset = options['overset']
+      overset = self.caseOptions['overset']
       # import data
       if filetype == 'VTK':
          self.importVTK(filename, datatype, overset)
@@ -47,6 +49,8 @@ class Grid():
       # empty dics for data reusing 
       self.clips = {}
       self.cuts = {}
+      self.slines = {}
+      self.outlines = {}
       # variable existed in obj 
       self.vars = []
       # reference state 
@@ -74,7 +78,22 @@ class Grid():
       return copt
 
    def setDefaultPlotOptions(self, options):
-      popt = {}
+      popt = {
+              # contour plot options
+              'cflevels':30,
+              'clevels':30,
+              'clcolors':'k',
+              'cmap':'coolwarm',
+              'cextend':'both',
+              # color bar options
+              'cbar_size':'3%',
+              'cbar_loc':'right', 
+              'cbar_pad':0.05,
+              # streamline options
+              'sline_spec':{'w':0.2, 'spec':'-k'},
+              # general outline options
+              'outline_spec':{'w':0.2, 'spec':'-k'},
+             }
       for op in options:
          if op in popt:
             popt[op] = options[op]
@@ -86,38 +105,36 @@ class Grid():
          pRef = refstate_input['pRef']
          TRef = refstate_input['TRef']
          rhoRef = pRef/(287.05*TRef)
-      else: 
-         pRef = 1.0
-         TRef = 1.0
-         rhoRef = 1.0
 
-      uRef = np.sqrt(pRef/rhoRef)
+         uRef = np.sqrt(pRef/rhoRef)
 
-      print('REF states: P=', pRef, ', T=', TRef, 
-            ', rho=', rhoRef, ', u=', uRef)
+         print('REF states: P=', pRef, ', T=', TRef, 
+               ', rho=', rhoRef, ', u=', uRef)
 
-      refstate = {'pRef':pRef, 'TRef':TRef, 'rhoRef':rhoRef,
-                  'uRef':uRef}
+         refstate = {'pRef':pRef, 'TRef':TRef, 'rhoRef':rhoRef,
+                     'uRef':uRef}
 
-      # Re-Dimensionalize and re-name all vars
-      rho = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rho']))*rhoRef
-      v = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['V']))*uRef
-      rhoet = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rhoet']))*rhoRef*uRef**2
-      P = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['P']))*pRef
-      M = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['M']))
+         # Re-Dimensionalize and re-name all vars
+         rho = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rho']))*rhoRef
+         v = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['V']))*uRef
+         rhoet = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rhoet']))*rhoRef*uRef**2
+         P = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['P']))*pRef
+         M = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['M']))
 
-      self.data = mv.AddNewArray(self.data, rho, 'rho')
-      self.data = mv.AddNewArray(self.data, P, 'P')
-      self.data = mv.AddNewArray(self.data, v, 'V')
-      self.data = mv.AddNewArray(self.data, M, 'M')
-      self.data = mv.AddNewArray(self.data, rhoet, 'rhoet')
-      self.vars = self.vars + ['rho', 'P', 'V', 'M', 'rhoet']
+         self.data = mv.AddNewArray(self.data, rho, 'rho')
+         self.data = mv.AddNewArray(self.data, P, 'P')
+         self.data = mv.AddNewArray(self.data, v, 'V')
+         self.data = mv.AddNewArray(self.data, M, 'M')
+         self.data = mv.AddNewArray(self.data, rhoet, 'rhoet')
+         self.vars = self.vars + ['rho', 'P', 'V', 'M', 'rhoet']
 
-      self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rho'])
-      self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['P'])
-      self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['V'])
-      self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['M'])
-      self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rhoet'])
+         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rho'])
+         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['P'])
+         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['V'])
+         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['M'])
+         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rhoet'])
+      else:
+         refstate = None
 
 
       return refstate
@@ -153,25 +170,24 @@ class Grid():
 
    ## ===== Plotting functions ========= ##
    
-   def plotContour(self, varname, point=None, normal=None, surface=None, ax=None, 
-                   axlim=None, plotboundary=False, cline=None, clevels=None, 
-                   cbar=True, clabel=None):
+   def plotContour(self, varname, surface, ax=None, 
+                   cbar=True, clabel=None,
+                   axlim=None, cline=None, clevels=None):
 
-      if surface is not None:
-         cut = self.cuts[surface]['vtkcut']
-         triangulation = self.cuts[surface]['triangulation']
-      elif point is not None and normal is not None:
-         cut, triangulation = self.makeSlice(point, normal, self.data) 
-      else:
-         raise ValueError('not enough input for the contour plot')
+      cut = self.cuts[surface]['vtkcut']
+      triangulation = self.cuts[surface]['triangulation']
+      normal = self.cuts[surface]['normal']
 
       vartoplot = vtk_to_numpy(mv.GetArray(cut, varname))
 
       if not ax:
          fig, ax = self.makePlot(axlim=axlim)
+      else:
+         fig = ax.get_figure()
 
       if cline is not None:
-         nline = 30
+         nline = self.plotOptions['clevels']
+         color = self.plotOptions['clcolors']
          cs = ax.tricontour(triangulation, vartoplot, nline, colors='k')
          ax.clabel(cs, fontsize=6, inline=1)
 
@@ -181,85 +197,219 @@ class Grid():
          levels = np.linspace(vmin,vmax,50)
          print(name+':'+'SET min='+str(minval)+', max='+str(maxval))
       else:
-         levels = 50
+         levels = self.plotOptions['cflevels']
 
-      csf = ax.tricontourf(triangulation, vartoplot, 
-                        levels=levels, cmap='coolwarm',extend='both')
+      if clabel is None:
+         clabel = varname
+
+      csf = ax.tricontourf(triangulation, vartoplot, levels=levels, 
+            cmap=self.plotOptions['cmap'], extend=self.plotOptions['cextend'])
 
       if cbar:
          # create an axes on the right side of ax. The width of cax will be 3%
          # of ax and the padding between cax and ax will be fixed at 0.05 inch.
          divider = make_axes_locatable(ax)
-         cax = divider.append_axes("right", size="3%", pad=0.05)
-         # set color bar, extendrect=true to avoid pointy ends
-         cbar = fig.colorbar(csf, cax=cax, orientation='vertical', label=clabel,extendrect=True)
-      if plotboundary:
-         self.getMeshBoundaries(cut, ax)
+         if self.plotOptions['cbar_loc'] == 'right':
+            cax = divider.append_axes("right", size=self.plotOptions['cbar_size'], 
+            pad=self.plotOptions['cbar_pad'])
+            # set color bar, extendrect=true to avoid pointy ends
+            cbar = fig.colorbar(csf, cax=cax, orientation='vertical', 
+                   label=clabel,extendrect=True)
+         elif self.plotOptions['cbar_loc'] == 'bottom':
+            cax = divider.append_axes("bottom", size=self.plotOptions['cbar_size'], 
+            pad=self.plotOptions['cbar_pad'])
+            cbar = fig.colorbar(csf, cax=cax, orientation='horizontal', 
+                   label=clabel,extendrect=True)
 
       ax.set_aspect('equal')
 
-      plt.show() 
    
-   def plotStreamLine(self, point=None, normal=None, surface=None, ax=None, 
-                   plotboundary=False):
-      pass
-
-   def plotGridLines(self, point=None, normal=None, surface=None, ax=None):
+   def plotStreamlineMultiBlk(self, varname, points, x_range, 
+                           surface=None, ax=None, 
+                           idir='both', slname=None, view=None):
       """
-      plot poly grids 
+      Plot streamline for multi-region or overset grids  
+      (When discontinuities might exist in between blks)
       """
-      pass
+      if surface:
+         source = self.cuts[surface]['vtkcut']
+         view = self.cuts[surface]['view']
+         planar = True
+      else:
+         source = self.data
+         view = view
+         planar = False
+         
+      #nodes = vtk_to_numpy(mv.GetNodes(source))
+      npt = len(points)
 
-   def makeSlice(self, point, normal, slicename=None, source=None):
+      allslines = []
+      for i, thisPt in enumerate(points):
+         sline = mv.Streamline(source, varname, thisPt, idir=idir, planar=planar)
+         endx = sline[-1,0]
+         counter = 0
+         if idir == 'forward':
+            while endx < x_range[1]:
+               pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
+               sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar)
+               sline = np.concatenate((sline, sline_next), axis=0)
+               endx = sline[-1,0]
+               counter = counter + 1
+               if len(sline_next)==1:
+                  print('streamline cannot continue')
+                  break
+               if counter > 1000:
+                  print('too many iterations')
+                  break
+         elif idir == 'backward':
+            while endx > x_range[0]:
+               pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
+               sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar)
+               sline = np.concatenate((sline, sline_next), axis=0)
+               endx = sline[-1,0]
+               counter = counter + 1
+               if len(sline_next)==1:
+                  print('streamline cannot continue')
+                  break
+               if counter > 1000:
+                  print('too many iterations')
+                  break
+         if ax is not None: 
+            ax.plot(sline[:-1,0],sline[:-1,1], 
+                    self.plotOptions['sline_spec']['spec'],
+                    linewidth=self.plotOptions['sline_spec']['w'])
+            ax.set_aspect('equal')
+
+         allslines.append(sline)
+
+      if slname:
+         self.slines[slname] = allslines
+
+      return 
+
+
+   
+
+   def makeSlice(self, center, normal, slicename=None, source=None, 
+                 view='-z', flip=False, saveboundary=False, triangulize=True):
       """
       make a slice cut of the flow domain  
       """
       if source is None:
          source = self.data
-      plane = mv.CreatePlaneFunction(point,normal)
-      cut = mv.Cut(source,plane)
+      plane = mv.CreatePlaneFunction(center, normal)
+      cut = mv.Cut(source,plane,tri=triangulize)
       # Get triangles from vtk cut 
       triangles = np.asarray(mv.GetTriangles(cut))
       # Reproduce triangulation with matplotlib
       nodes = vtk_to_numpy(mv.GetNodes(cut))
-      triangulation = tri.Triangulation(nodes[:,0], nodes[:,1], triangles)
+      ## TODO rotate to a view such that the 2D plane is x-y plane (looking against z)
+      ## toe, pitch angles
+      #pitch = np.arctan2(axis[2], axis[0]) - np.pi/2.0
+      #toe = np.arctan2(axis[1], axis[0])
+      #roll = np.arctan2(axis[2], axis[1]) - np.pi/2.0
+      ## do the transformation
+      # Set viewing direction
+      if view == '-x':
+         x, y = nodes[:,1], nodes[:,2]
+      elif view == '+x':
+         x, y = -1*nodes[:,1], nodes[:,2]
+      elif view == '-y':
+         x, y = -1*nodes[:,0], nodes[:,2]
+      elif view == '+y':
+         x, y = nodes[:,0], nodes[:,2]
+      elif view == '-z':
+         x, y = nodes[:,0], nodes[:,1]
+      elif view == '+z':
+         x, y = -1*nodes[:,0], nodes[:,1]
+      if flip:
+         xplot, yplot = y, x
+      else:
+         xplot, yplot = x, y 
+      # Convert 3D nodes to 2D coord system on the cut surface
+      triangulation = tri.Triangulation(xplot, yplot, triangles)
       # save cut for later use if slicename is specified
       if slicename:
-         self.cuts[slicename] = {'vtkcut':cut, 'triangulation':triangulation}
+         self.cuts[slicename] = \
+         {'vtkcut':cut, 'triangulation':triangulation, 'view':view, 'normal':normal}
 
       return cut, triangulation
 
-   ## ====== Geometry handeling ====== ##
-   def plotAlphaShapes(self, surface, ax=None):
+   def makeClip(self, clip_limit, center, normal, clipname=None, source=None):
       """
-      An implementation of alpha shape through a surface with existing triangulations
-      (Could also be done via Delaunay Triangulation)
-      See: https://stackoverflow.com/questions/23073170/calculate-bounding-polygon-of-alpha-shape-from-the-delaunay-triangulation
-
-      Input: 
+      make a clip
       ---
-      surface, a vtk object (same as that of a cut plane) 
-      ax, matplotlib object
+      input param:
+      
+      clip_limit: list, [xmin, xmax, ymin, ymax]
       """
-      print("See getMeshEdges() for similar functionality")
-      raise NotImplementedError
+      clip_plane = []
+      clip_plane.append(mv.CreatePlaneFunction((clip_limit[0],0.0,0.5),(1,0,0)))
+      clip_plane.append(mv.CreatePlaneFunction((clip_limit[1],0.0,0.5),(-1,0,0)))
+      clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[2],0.5),(0,1,0)))
+      clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[3],0.5),(0,-1,0)))
+      data = self.data
+      for clip in clip_plane:
+         data = mv.Clip(data, clip)
 
-   def getMeshBoundaries(self, surface, ax):
+      self.clips[clipname] = data
+
+   ## ====== Geometry handeling ====== ##
+   #def plotAlphaShapes(self, surface, triangulation, ax=None):
+   #   """
+   #   An implementation of alpha shape through a surface with existing triangulations
+   #   (Could also be done via Delaunay Triangulation)
+   #   See: https://stackoverflow.com/questions/23073170/calculate-bounding-polygon-of-alpha-shape-from-the-delaunay-triangulation
+
+   #   Input: 
+   #   ---
+   #   surface, a vtk object (same as that of a cut plane) 
+   #   ax, matplotlib object
+   #   """
+
+   #   nodes = vtk_to_numpy(mv.GetNodes(surface))
+   #   conn, neighbor = mv.GetTriangles(surface, neighbor=True)
+   #   edges = triangulation.edges
+   #   print(edges)
+   #   unique_edges = findBoundaryEdges(edges)
+   #   print(len(unique_edges))
+   #   for edge in unique_edges:
+   #      ind1, ind2 = edge[0], edge[1]
+   #      pts = np.asarray([[nodes[ind1,0], nodes[ind1,1]], 
+   #                        [nodes[ind2,0], nodes[ind2,1]]])
+   #      ax.plot(pts[:,0], pts[:,1], '-k')
+
+
+   def getMeshBoundaries(self, surface, ax=None, name=None):
       """
       get the boundary curves of a mesh (vtkFeatureEdges)
       """
-      edges = mv.GetEdges(surface)
-      print(edges.GetOutput().GetLines())
-      #nodes = vtk_to_numpy(mv.GetNodes(surface))
-      #ptidex = vtk_to_numpy(edges.GetOutput().GetLines().GetData())
-      #edgepts = []
-      #for ind in ptidex:
-      #   edgepts.append(nodes[ptidex, :])
-      #print(edgepts)
-      #npt = len(edgepts)
-      #for ii in range(npt):
-      #   ax.plot(edgepts[ii][0], edgepts[ii][1], 'k.')
-      
+      surface = self.cuts[surface]['vtkcut']
+      edge_pts = mv.GetFeatureEdges(surface)
+      if name is not None:
+         self.outlines[name] = edge_pts
+      if ax is not None:
+         for edge in edge_pts:
+            x = [edge[0][0], edge[1][0]]
+            y = [edge[0][1], edge[1][1]]
+            ax.plot(x, y, '-k')
+
+   def plotSavedOutlines(self, name, ax): 
+      for edge in self.outlines[name]:
+         x = [edge[0][0], edge[1][0]]
+         y = [edge[0][1], edge[1][1]]
+         ax.plot(x, y, self.plotOptions['outline_spec']['spec'],
+                 linewidth=self.plotOptions['outline_spec']['w'])
+
+   def plotSavedStreamline(self, name, ax): 
+      slines = self.slines[name]
+      for sline in slines:
+         ax.plot(sline[:-1,0],sline[:-1,1], 
+         self.plotOptions['sline_spec']['spec'],
+         linewidth=self.plotOptions['sline_spec']['w'])
+
+   def plotGridLines(self,triangulation,ax):
+      ax.triplot(triangulation)
 
 
    ## ====== CFD data processing ======= ##
@@ -447,9 +597,25 @@ class Grid():
 
 
    def importVTK(self, filename, datatype, overset):
-      if isinstance(filename, list):
-         self.data = mv.ReadVTKFile(dom+'.vtk')
-         #TODO: finish testing 
+      #if isinstance(filename, list):
+      self.data = mv.ReadVTKFile(filename)
+      if datatype == 'POINT':
+         self.datac = mv.ReadVTKFile(filename)
+         self.data = mv.CtoP(mv.ReadVTKFile(filename))
+
+      self.ncell=  self.data.GetOutput().GetNumberOfCells()
+      self.npoints=self.data.GetOutput().GetNumberOfPoints()
+      self.narray =self.data.GetOutput().GetPointData().GetNumberOfArrays()
+      self.arrayNames = []
+
+      for ii in range(self.narray):
+         name = self.data.GetOutput().GetPointData().GetArrayName(ii)
+         self.arrayNames.append(name)
+
+      # Print all relavent informations
+      print('GRID info, ncells: ', self.ncell, ', npoints: ', self.npoints, 
+       ', narray: ', self.narray, ', array names: ', self.arrayNames)
+
 
    def exportVTK(self, filename, varlist=None):
       if varlist:
@@ -466,7 +632,7 @@ class Grid():
 
       fig, ax = plt.subplots(nrow, ncol)
 
-      if axlim:
+      if axlim is not None:
          ax.set_xlim(axlim[0])
          ax.set_ylim(axlim[1])
 
@@ -478,5 +644,21 @@ class Grid():
       pass
       #return fig, ax
    
-   
+def findBoundaryEdges(edges):
+   edgescopy = edges.tolist()
+   print(edgescopy[:20])
+   for ed in edgescopy:
+      ed.sort()
+   print(edgescopy[:20])
+   edgescopy = list(map(tuple, edgescopy))
+   print(len(edgescopy))
+   cnt = Counter(edgescopy)
+   unique_edges = []
+   for edge in set(edgescopy):
+      if cnt[edge] == 1:
+         unique_edges.append(edge)
+   unique_edges.sort()
+   del edgescopy
+
+   return  unique_edges  
 
