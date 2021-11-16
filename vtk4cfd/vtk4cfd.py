@@ -165,6 +165,7 @@ class Grid():
       for state in infState:
          infState[state] = infState[state][0]
       infState['Pt'] =  infState['P']/((1+(1.4-1)/2*infState['M']**2)**(-1.4/(1.4-1)))
+      infState['T'] = infState['P']/(287.0*infState['rho'])
       print('INF states: ', infState)
       return infState
 
@@ -194,8 +195,8 @@ class Grid():
       if clevels is not None:
          vmin = clevels[0]
          vmax = clevels[1]
-         levels = np.linspace(vmin,vmax,50)
-         print(name+':'+'SET min='+str(minval)+', max='+str(maxval))
+         levels = np.linspace(vmin,vmax,30)
+         print(varname+':'+'SET min='+str(vmin)+', max='+str(vmax))
       else:
          levels = self.plotOptions['cflevels']
 
@@ -258,7 +259,7 @@ class Grid():
                if len(sline_next)==1:
                   print('streamline cannot continue')
                   break
-               if counter > 1000:
+               if counter > 500:
                   print('too many iterations')
                   break
          elif idir == 'backward':
@@ -271,7 +272,7 @@ class Grid():
                if len(sline_next)==1:
                   print('streamline cannot continue')
                   break
-               if counter > 1000:
+               if counter > 500:
                   print('too many iterations')
                   break
          if ax is not None: 
@@ -436,6 +437,19 @@ class Grid():
 
       return probeResult
 
+   def getVar(self, varname, datatype='POINT'):
+      """
+      get raw data of a flow variable 
+      """
+      if datatype == 'POINT':
+         source = self.data
+         data = vtk_to_numpy(mv.GetArray(source, varname))
+      elif datatype == 'CELL':
+         source = self.datac
+         data = vtk_to_numpy(mv.GetCArray(source, varname))
+
+      return data
+
 
    def computeVar(self, varlist):
       """
@@ -531,7 +545,7 @@ class Grid():
       pass
 
 
-   def volInt():
+   def volInt(self, varname):
       """
       Volume integration
       """
@@ -596,10 +610,10 @@ class Grid():
        ', narray: ', self.narray, ', array names: ', self.arrayNames)
 
 
-   def importVTK(self, filename, datatype, overset):
+   def importVTK(self, filename, datatype='CELL', overset=False):
       #if isinstance(filename, list):
       self.data = mv.ReadVTKFile(filename)
-      if datatype == 'POINT':
+      if datatype == 'CELL':
          self.datac = mv.ReadVTKFile(filename)
          self.data = mv.CtoP(mv.ReadVTKFile(filename))
 
