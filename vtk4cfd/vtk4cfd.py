@@ -13,6 +13,7 @@ import math
 import math as m
 import os
 import vtk
+import glob
 
 
 class Grid():
@@ -68,6 +69,7 @@ class Grid():
       copt['overset'] = False
       copt['refstate'] = None 
       copt['domlist'] = []
+      copt['domname_key'] = ['bw02_*.vtk'] 
       copt['freestreamloc'] = None
       copt['solvarnames'] = {'rho':'Density', 'P':'Pressure', 'T':'Temperature',
                              'V':'Velocity', 'M':'Mach', 
@@ -566,16 +568,21 @@ class Grid():
          return False
       domlist = self.caseOptions['domlist']
       if len(domlist) == 0:
-         print('You have to specify domain names in the case options thruough: domlist')
-         return False
+         print('Domain names not specified in the case options thruough: domlist, try reading .vtk files in current dir')
+         all_domname_key = self.caseOptions['domname_key'] 
+         for domname_key in all_domname_key:
+            print('Found domains: ', glob.glob(domname_key))
+            for vtkfile in glob.glob(domname_key):
+               domlist.append(vtkfile) 
+         #return False
 
       self.caseOptions['nblk']= len(domlist)
       self.data_doms = []
       # loop through cgns doms
       for dom in domlist:
-         self.data_doms.append(mv.ReadVTKFile(dom+'.vtk'))
+         self.data_doms.append(mv.ReadVTKFile(dom))
          # remove converted VTK file
-         mycmd = 'rm '+dom+'.vtk'
+         mycmd = 'rm '+dom
          os.system(mycmd)
 
       if len(domlist)>1:
