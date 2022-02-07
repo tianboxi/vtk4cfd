@@ -36,6 +36,8 @@ class Grid():
       # this is where main data file is linked to
       self.data = None
       self.drange = {}
+      # variable existed in obj 
+      self.vars = []
       # if this is an overset grid
       overset = self.caseOptions['overset']
       # import data
@@ -52,8 +54,7 @@ class Grid():
       self.cuts = {}
       self.slines = {}
       self.outlines = {}
-      # variable existed in obj 
-      self.vars = []
+      
       # reference state 
       self.refs = self.setRefState()
       # probe freestream properties
@@ -676,6 +677,11 @@ class Grid():
       # Print all relavent informations
       print('GRID info, ncells: ', self.ncell, ', npoints: ', self.npoints, 
        ', narray: ', self.narray, ', array names: ', self.arrayNames)
+
+      for name in self.caseOptions['solvarnames']:
+         varname = self.caseOptions['solvarnames'][name]
+         if varname  in self.arrayNames:
+            self.vars.append(varname)
 
 
    def exportVTK(self, filename, varlist=None):
