@@ -58,6 +58,7 @@ class Grid():
       self.refs = self.setRefState()
       # probe freestream properties
       if self.caseOptions['freestreamloc'] is not None:
+         print('PROBE free stream properties at: ', self.caseOptions['freestreamloc'])
          self.infs = self.getFreeStreamProperties(datatype='POINT')     
       # range of data
       self.updateDRange()
@@ -226,7 +227,46 @@ class Grid():
 
       ax.set_aspect('equal')
 
-   
+   def plotVectors(self, varname, surface, ax, view, flip):
+      """
+      Plot vectors 
+      """
+      cut = self.cuts[surface]['vtkcut']
+      #view = self.cuts[surface]['view']
+      nodes = vtk_to_numpy(mv.GetNodes(cut))
+      vartoplot = vtk_to_numpy(mv.GetArray(cut, varname))
+      #TODO mask some of the points
+      #for ii in range(nodes.shape[0]):
+      x,y,z = nodes[:,0], nodes[:,1], nodes[:,2]
+      vx, vy, vz = vartoplot[:,0], vartoplot[:,1], vartoplot[:,2]
+      if view == '-x':
+         x, y = nodes[:,1], nodes[:,2]
+         vx, vy = vartoplot[:,1], vartoplot[:,2]
+      elif view == '+x':
+         x, y = -1*nodes[:,1], nodes[:,2]
+         vx, vy = -1*vartoplot[:,1], vartoplot[:,2]
+      elif view == '-y':
+         x, y = -1*nodes[:,0], nodes[:,2]
+         vx, vy = -1*vartoplot[:,0], vartoplot[:,2]
+      elif view == '+y':
+         x, y = nodes[:,0], nodes[:,2]
+         vx, vy = vartoplot[:,0], vartoplot[:,2]
+      elif view == '-z':
+         x, y = nodes[:,0], nodes[:,1]
+         vx, vy = vartoplot[:,0], vartoplot[:,1]
+      elif view == '+z':
+         x, y = -1*nodes[:,0], nodes[:,1]
+         vx, vy = -1*vartoplot[:,0], vartoplot[:,1]
+      if flip:
+         xplot, yplot = y, x
+         vxplot, vyplot = vy, vx
+      else:
+         xplot, yplot = x, y
+         vxplot, vyplot = vx, vy
+      # the smaller the scale the longer the arrow
+      ax.quiver(xplot[::100],yplot[::100],vxplot[::100],vyplot[::100],scale=300.0)
+
+
    def plotStreamlineMultiBlk(self, varname, points, x_range, 
                            surface=None, ax=None, 
                            idir='both', slname=None, view=None):
@@ -254,7 +294,7 @@ class Grid():
          if idir == 'forward':
             while endx < x_range[1]:
                pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
-               sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar)
+               sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=2.0)
                sline = np.concatenate((sline, sline_next), axis=0)
                endx = sline[-1,0]
                counter = counter + 1
@@ -267,7 +307,7 @@ class Grid():
          elif idir == 'backward':
             while endx > x_range[0]:
                pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
-               sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar)
+               sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=2.0)
                sline = np.concatenate((sline, sline_next), axis=0)
                endx = sline[-1,0]
                counter = counter + 1
