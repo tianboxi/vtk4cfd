@@ -67,15 +67,16 @@ class Grid():
    ## ===== Initialization Functions ===== ##
 
    def setDefaultOptions(self, options):
-      copt = {}
-      copt['overset'] = False
-      copt['refstate'] = None 
-      copt['domlist'] = []
-      copt['domname_key'] = ['bw02_*.vtk'] 
-      copt['freestreamloc'] = None
-      copt['solvarnames'] = {'rho':'Density', 'P':'Pressure', 'T':'Temperature',
+      copt = {
+      'overset': False,
+      'refstate': None,
+      'domlist': [],
+      'domname_key': ['bw02_*.vtk'],
+      'freestreamloc': None,
+      'solvarnames': {'rho':'Density', 'P':'Pressure', 'T':'Temperature',
                              'V':'Velocity', 'M':'Mach', 
-                             'rhoet':'EnergyStagnationDensity'} 
+                             'rhoet':'EnergyStagnationDensity'},
+      } 
       for op in options:
          if op in copt:
             copt[op] = options[op]
@@ -119,24 +120,26 @@ class Grid():
                      'uRef':uRef}
 
          # Re-Dimensionalize and re-name all vars
-         rho = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rho']))*rhoRef
-         v = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['V']))*uRef
-         rhoet = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['rhoet']))*rhoRef*uRef**2
-         P = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['P']))*pRef
-         M = vtk_to_numpy(mv.GetArray(self.data,self.caseOptions['solvarnames']['M']))
+         varnames = self.caseOptions['solvarnames']
+         rho = vtk_to_numpy(mv.GetArray(self.data,varnames['rho']))*rhoRef
+         v = vtk_to_numpy(mv.GetArray(self.data,varnames['V']))*uRef
+         rhoet = vtk_to_numpy(mv.GetArray(self.data,varnames['rhoet']))*rhoRef*uRef**2
+         P = vtk_to_numpy(mv.GetArray(self.data,varnames['P']))*pRef
+         M = vtk_to_numpy(mv.GetArray(self.data,varnames['M']))
+         self.data = mv.RemovePArray(self.data, varnames['rho'])
+         self.data = mv.RemovePArray(self.data, varnames['P'])
+         self.data = mv.RemovePArray(self.data, varnames['V'])
+         self.data = mv.RemovePArray(self.data, varnames['M'])
+         self.data = mv.RemovePArray(self.data, varnames['rhoet'])
+         self.data = mv.AddNewArray(self.data, rho, varnames['rho'])
+         self.data = mv.AddNewArray(self.data, P, varnames['P'])
+         self.data = mv.AddNewArray(self.data, v, varnames['V'])
+         self.data = mv.AddNewArray(self.data, M, varnames['M'])
+         self.data = mv.AddNewArray(self.data, rhoet, varnames['rhoet'])
+         self.vars = self.vars + [varnames['rho'], varnames['P'], varnames['V'], varnames['M'], varnames['rhoet']]
+         
 
-         self.data = mv.AddNewArray(self.data, rho, 'rho')
-         self.data = mv.AddNewArray(self.data, P, 'P')
-         self.data = mv.AddNewArray(self.data, v, 'V')
-         self.data = mv.AddNewArray(self.data, M, 'M')
-         self.data = mv.AddNewArray(self.data, rhoet, 'rhoet')
-         self.vars = self.vars + ['rho', 'P', 'V', 'M', 'rhoet']
-
-         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rho'])
-         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['P'])
-         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['V'])
-         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['M'])
-         self.data = mv.RemovePArray(self.data, self.caseOptions['solvarnames']['rhoet'])
+         
       else:
          refstate = None
 
@@ -398,6 +401,12 @@ class Grid():
 
       self.clips[clipname] = data
 
+   def makeContourSurfs(self, varnames, drange):
+      """
+      make contour surface of a certain variable that exists in the solution 
+      """
+      pass
+
    ## ====== Geometry handeling ====== ##
    #def plotAlphaShapes(self, surface, triangulation, ax=None):
    #   """
@@ -501,19 +510,44 @@ class Grid():
       # import known states as numpy array
       data = self.data
       nodes = vtk_to_numpy(mv.GetNodes(data))
-
-      rho = vtk_to_numpy(mv.GetArray(data,'rho'))
-      v = vtk_to_numpy(mv.GetArray(data,'V'))
-      rhoet = vtk_to_numpy(mv.GetArray(data,'rhoet'))
-      P = vtk_to_numpy(mv.GetArray(data,'P'))
-      mach = vtk_to_numpy(mv.GetArray(data,'M'))
+      varnames = self.caseOptions['solvarnames']
+      if 'rho' in varnames:
+         rho = vtk_to_numpy(mv.GetArray(data,varnames['rho']))
+      if 'V' in varnames:
+         v = vtk_to_numpy(mv.GetArray(data,varnames['V']))
+      if 'rhoet' in varnames:
+         rhoet = vtk_to_numpy(mv.GetArray(data,varnames['rhoet']))
+      if 'P' in varnames:
+         P = vtk_to_numpy(mv.GetArray(data,varnames['P']))
+      if 'M' in varnames:
+         mach = vtk_to_numpy(mv.GetArray(data,varnames['M']))
       #T = vtk_to_numpy(mv.GetArray(data,'Temperature'))*self.TRef
-      T = P/(rho*287.0)
-      Et = rhoet/rho
-      Ht = Et+P/rho
-      Pt = P/((1+(1.4-1)/2*mach**2)**(-1.4/(1.4-1)))    # total pressure from isentropic relation
+      if 'P' in varnames and 'rho' in varnames:
+         T = P/(rho*287.0)
+      if 'rhoet' in varnames:
+         Et = rhoet/rho
+      if 'rhoet' in varnames:
+         Ht = Et+P/rho
+      if 'rhoet' in varnames: 
+         Pt = P/((1+(1.4-1)/2*mach**2)**(-1.4/(1.4-1)))    # total pressure from isentropic relation
+
       N = len(rho)
-      
+
+      if 'RPM' in self.caseOptions:
+         omega = self.caseOptions['RPM']*2*np.pi/60.0
+
+         nodes_cyl = utils.CartToCyl(nodes,'coord')           # convert point coords to cylindrical system
+         v_cyl = CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
+         w_cyl = np.zeros((N,3))                        # Compute relative velocity
+         w_cyl[:,0] = v_cyl[:,0]
+         w_cyl[:,1] = v_cyl[:,1] + omega*nodes_cyl[:,0]
+         w_cyl[:,2] = v_cyl[:,2]
+         w = CylToCart(w_cyl, 'vector', nodes_cyl[:,1])
+         if 'rhoet' in varnames:
+            machr = np.sqrt(w[:,0]**2+w[:,1]**2+w[:,2]**2)/np.sqrt(1.4*287*T)
+
+
+      # Basic flow variables 
       if 'vx' in varlist and 'vx' not in self.vars:
          data = mv.AddNewArray(data,v[:,0],'vx')      
          self.vars.append('vx')
@@ -563,6 +597,45 @@ class Grid():
          data = mv.AddNewArray(data,vmag,'Vmag')      
          self.vars.append('Vmag')
 
+      # == Turbomachinery Variables ==
+      if 'alpha' in varlist and 'alpha' not in self.vars:
+         alpha = -np.arctan2(v_cyl[:,1],np.sqrt(v_cyl[:,2]**2+v_cyl[:,0]**2)* (v_cyl[:,2]/np.absolute(v_cyl[:,2])) )/np.pi*180.0
+         #alpha = -np.arctan2(v_cyl[:,1],v_cyl[:,2])/m.pi*180
+         data = mv.AddNewArray(data,alpha,'alpha')      
+         self.vars.append('alpha')
+
+      if 'beta' in varlist and 'beta' not in self.vars:
+         beta = np.arctan2(w_cyl[:,1],np.sqrt(w_cyl[:,2]**2 + w_cyl[:,0]**2))/np.pi*180
+         #beta = np.arctan2(w_cyl[:,1],w_cyl[:,2])/m.pi*180
+         data = mv.AddNewArray(data,beta,'beta')      
+         self.vars.append('beta')
+
+      if 'vr' in varlist and 'vr' not in self.vars:
+         data = mv.AddNewArray(data,v_cyl[:,0],'vr')      
+         self.vars.append('vr')
+      if 'vt' in varlist and 'vt' not in self.vars:
+         data = mv.AddNewArray(data,v_cyl[:,1],'vt')      
+         self.vars.append('vt')
+      if 'W' in varlist and 'W' not in self.vars:
+         data = mv.AddNewArray(data,w,'W')      
+         self.vars.append('W')
+      if 'Wt' in varlist and 'Wt' not in self.vars:
+         data = mv.AddNewArray(data,w_cyl[:,1],'Wt')      
+         self.vars.append('Wt')
+      if 'Pmech' in varlist and 'Pmech' not in self.vars:
+         Pmechloc = v[:,0]*(Pt-101325.0) # flow mechanical power local
+         data = mv.AddNewArray(data,Pmechloc,'Pmech')      
+         self.vars.append('Pmech')
+      if 'PK' in varlist and 'PK' not in self.vars:
+         vmag = np.linalg.norm(v, axis=1)
+         PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs['P']+0.5*self.infs['rho']*self.infs['V']**2))
+         data = mv.AddNewArray(data,PK,'PK')      
+         self.vars.append('PK')
+      if 'phi' in varlist and 'phi' not in self.vars:
+         phi = v[:,0]/(self.caseOptions['rtip']*omega)
+         data = mv.AddNewArray(data,phi,'phi')      
+         self.vars.append('phi')
+
       self.updateDRange()
 
       return data
@@ -575,18 +648,78 @@ class Grid():
 
    
    ## ====== Integrations ====== ##
-   def massInt():
+   def massInt(self, surface, varnames):
       """
       Mass integration and mass averaging of other properties over a specified surface 
       """
-      pass
+      surf = self.cuts[surface]['vtkcut'] 
+      triangulation = self.cuts[surface]['triangulation']
+      normal = self.cuts[surface]['normal']
+      defvarnames = self.caseOptions['solvarnames']
+
+      rho = vtk_to_numpy(mv.GetArray(surf, defvarnames['rho']))
+      V = vtk_to_numpy(mv.GetArray(surf, defvarnames['V']))
+      # Velocity normal to the integration surface
+      Vn = V[:,0]*normal[0] + V[:,1]*normal[1] + V[:,2]*normal[2]
+      N = len(rho)
+
+      intvar = np.zeros((N, len(varnames)))
+      for name in varnames:
+         intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+
+      ncell = surf.GetOutput().GetNumberOfCells()
+      #print(surf.GetOutput().GetCell(100).TriangleCenter())
+      masssum, varsum = 0.0, np.zeros(len(varnames))
+      for j in range(ncell):
+         area =surf.GetOutput().GetCell(j).ComputeArea()
+         ids = []
+         for i in range(3):
+            ids.append(int(surf.GetOutput().GetCell(j).GetPointId(i)))
+         averho = (rho[ids[0]]+rho[ids[1]]+rho[ids[2]])/3.0
+         aveu = (Vn[ids[0]]+Vn[ids[1]]+Vn[ids[2]])/3.0
+         masscell = averho*aveu*area
+         avevar = []
+         for k, name in enumerate(varnames):
+            avevar.append((intvar[ids[0],k]+intvar[ids[1],k]+intvar[ids[2],k])/3.0)
+
+         masssum = masssum + masscell
+         varsum = varsum + masscell * np.array(avevar)
+
+      varmassave = varsum/masssum
+
+      return varmassave, masssum 
+      
    
-   def surfaceInt():
+   def surfaceInt(self, surface, varnames):
       """
       Surface integration of flow properties
       """
-      pass
+      surf = self.cuts[surface]['vtkcut'] 
+      triangulation = self.cuts[surface]['triangulation']
+      normal = self.cuts[surface]['normal']
+      defvarnames = self.caseOptions['solvarnames']
 
+      nodes = vtk_to_numpy(mv.GetNodes(cut))
+      N = len(nodes)
+
+      intvar = np.zeros((N, len(varnames)))
+      for name in varnames:
+         intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+
+      ncell = surf.GetOutput().GetNumberOfCells()
+      varsum = np.zeros(len(varnames))
+      for j in range(ncell):
+         area =surf.GetOutput().GetCell(j).ComputeArea()
+         ids = []
+         for i in range(3):
+            ids.append(int(surf.GetOutput().GetCell(j).GetPointId(i)))
+         avevar = []
+         for k, name in enumerate(varnames):
+            avevar.append((intvar[ids[0],k]+intvar[ids[1],k]+intvar[ids[2],k])/3.0)
+
+         varsum = varsum + area * np.array(avevar)
+
+      return varsum 
 
    def volInt(self, varname):
       """
@@ -680,7 +813,7 @@ class Grid():
 
       for name in self.caseOptions['solvarnames']:
          varname = self.caseOptions['solvarnames'][name]
-         if varname  in self.arrayNames:
+         if varname in self.arrayNames:
             self.vars.append(varname)
 
 
