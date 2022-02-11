@@ -74,12 +74,14 @@ class Grid():
       'domname_key': ['bw02_*.vtk'],
       'freestreamloc': None,
       'solvarnames': {'rho':'Density', 'P':'Pressure', 'T':'Temperature',
-                             'V':'Velocity', 'M':'Mach', 
-                             'rhoet':'EnergyStagnationDensity'},
+                            'V':'Velocity', 'M':'Mach', 
+                            'rhoet':'EnergyStagnationDensity'},
       } 
       for op in options:
          if op in copt:
             copt[op] = options[op]
+         else:
+            print(op, 'is not an option by default')
       return copt
 
    def setDefaultPlotOptions(self, options):
