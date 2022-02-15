@@ -73,9 +73,10 @@ class Grid():
       'domlist': [],
       'domname_key': ['bw02_*.vtk'],
       'freestreamloc': None,
-      'solvarnames': {'rho':'Density', 'P':'Pressure', 'T':'Temperature',
-                            'V':'Velocity', 'M':'Mach', 
+      'solvarnames': {'rho':'Density', 'p':'Pressure', 'T':'Temperature',
+                            'V':'Velocity', 'M':'Mach',  
                             'rhoet':'EnergyStagnationDensity'},
+      'ref_vals':{'p':101325.0}
       } 
       for op in options:
          if op in copt:
@@ -126,19 +127,19 @@ class Grid():
          rho = vtk_to_numpy(mv.GetArray(self.data,varnames['rho']))*rhoRef
          v = vtk_to_numpy(mv.GetArray(self.data,varnames['V']))*uRef
          rhoet = vtk_to_numpy(mv.GetArray(self.data,varnames['rhoet']))*rhoRef*uRef**2
-         P = vtk_to_numpy(mv.GetArray(self.data,varnames['P']))*pRef
+         P = vtk_to_numpy(mv.GetArray(self.data,varnames['p']))*pRef
          M = vtk_to_numpy(mv.GetArray(self.data,varnames['M']))
          self.data = mv.RemovePArray(self.data, varnames['rho'])
-         self.data = mv.RemovePArray(self.data, varnames['P'])
+         self.data = mv.RemovePArray(self.data, varnames['p'])
          self.data = mv.RemovePArray(self.data, varnames['V'])
          self.data = mv.RemovePArray(self.data, varnames['M'])
          self.data = mv.RemovePArray(self.data, varnames['rhoet'])
          self.data = mv.AddNewArray(self.data, rho, varnames['rho'])
-         self.data = mv.AddNewArray(self.data, P, varnames['P'])
+         self.data = mv.AddNewArray(self.data, P, varnames['p'])
          self.data = mv.AddNewArray(self.data, v, varnames['V'])
          self.data = mv.AddNewArray(self.data, M, varnames['M'])
          self.data = mv.AddNewArray(self.data, rhoet, varnames['rhoet'])
-         self.vars = self.vars + [varnames['rho'], varnames['P'], varnames['V'], varnames['M'], varnames['rhoet']]
+         self.vars = self.vars + [varnames['rho'], varnames['p'], varnames['V'], varnames['M'], varnames['rhoet']]
          
 
          
@@ -159,7 +160,7 @@ class Grid():
       print('Data Range: ', self.drange)
          
    def getFreeStreamProperties(self, datatype='POINT',
-                               propertyNames=['P','V','rho','M']):
+                               propertyNames=['p','V','rho','M']):
       """
       Probe a spcific point for freestream properties
       """
@@ -169,12 +170,12 @@ class Grid():
       else:
          src = self.datac
 
-      infState = self.probFlowField([loc], ['P','V','rho','M'], source=src)
+      infState = self.probFlowField([loc], ['p','V','rho','M'], source=src)
       infState['V'] =  [np.linalg.norm(infState['V'])]
       for state in infState:
          infState[state] = infState[state][0]
-      infState['Pt'] =  infState['P']/((1+(1.4-1)/2*infState['M']**2)**(-1.4/(1.4-1)))
-      infState['T'] = infState['P']/(287.0*infState['rho'])
+      infState['pt'] =  infState['p']/((1+(1.4-1)/2*infState['M']**2)**(-1.4/(1.4-1)))
+      infState['T'] = infState['p']/(287.0*infState['rho'])
       print('INF states: ', infState)
       return infState
 
@@ -295,41 +296,45 @@ class Grid():
       allslines = []
       for i, thisPt in enumerate(points):
          sline = mv.Streamline(source, varname, thisPt, idir=idir, planar=planar)
-         endx = sline[-1,0]
-         counter = 0
-         if idir == 'forward':
-            while endx < x_range[1]:
-               pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
-               sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=2.0)
-               sline = np.concatenate((sline, sline_next), axis=0)
-               endx = sline[-1,0]
-               counter = counter + 1
-               if len(sline_next)==1:
-                  print('streamline cannot continue')
-                  break
-               if counter > 500:
-                  print('too many iterations')
-                  break
-         elif idir == 'backward':
-            while endx > x_range[0]:
-               pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
-               sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=2.0)
-               sline = np.concatenate((sline, sline_next), axis=0)
-               endx = sline[-1,0]
-               counter = counter + 1
-               if len(sline_next)==1:
-                  print('streamline cannot continue')
-                  break
-               if counter > 500:
-                  print('too many iterations')
-                  break
-         if ax is not None: 
-            ax.plot(sline[:-1,0],sline[:-1,1], 
-                    self.plotOptions['sline_spec']['spec'],
-                    linewidth=self.plotOptions['sline_spec']['w'])
-            ax.set_aspect('equal')
+         if len(sline)>0:
+            endx = sline[-1,0]
+            counter = 0
+            if idir == 'forward':
+               while endx < x_range[1]:
+                  pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
+                  sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=2.0)
+                  sline = np.concatenate((sline, sline_next), axis=0)
+                  endx = sline[-1,0]
+                  counter = counter + 1
+                  if len(sline_next)==1:
+                     print('streamline cannot continue')
+                     break
+                  if counter > 500:
+                     print('too many iterations')
+                     break
+            elif idir == 'backward':
+               while endx > x_range[0]:
+                  pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
+                  sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=2.0)
+                  sline = np.concatenate((sline, sline_next), axis=0)
+                  endx = sline[-1,0]
+                  counter = counter + 1
+                  if len(sline_next)==1:
+                     print('streamline cannot continue')
+                     break
+                  if counter > 500:
+                     print('too many iterations')
+                     break
+            if ax is not None: 
+               ax.plot(sline[:-1,0],sline[:-1,1], 
+                       self.plotOptions['sline_spec']['spec'],
+                       linewidth=self.plotOptions['sline_spec']['w'])
+               ax.set_aspect('equal')
 
-         allslines.append(sline)
+            allslines.append(sline)
+
+         else:
+            print('No streamline plotted at ',thisPt)
 
       if slname:
          self.slines[slname] = allslines
@@ -504,7 +509,6 @@ class Grid():
 
       return data
 
-
    def computeVar(self, varlist):
       """
       Given the basic flow solutions, compute other flow variables 
@@ -519,12 +523,12 @@ class Grid():
          v = vtk_to_numpy(mv.GetArray(data,varnames['V']))
       if 'rhoet' in varnames:
          rhoet = vtk_to_numpy(mv.GetArray(data,varnames['rhoet']))
-      if 'P' in varnames:
-         P = vtk_to_numpy(mv.GetArray(data,varnames['P']))
+      if 'p' in varnames:
+         P = vtk_to_numpy(mv.GetArray(data,varnames['p']))
       if 'M' in varnames:
          mach = vtk_to_numpy(mv.GetArray(data,varnames['M']))
       #T = vtk_to_numpy(mv.GetArray(data,'Temperature'))*self.TRef
-      if 'P' in varnames and 'rho' in varnames:
+      if 'p' in varnames and 'rho' in varnames:
          T = P/(rho*287.0)
       if 'rhoet' in varnames:
          Et = rhoet/rho
@@ -570,9 +574,9 @@ class Grid():
       if 'T' in varlist and 'T' not in self.vars:
          data = mv.AddNewArray(data,T,'T')      
          self.vars.append('T')
-      if 'Pt' in varlist and 'Pt' not in self.vars:
-         data = mv.AddNewArray(data,Pt,'Pt')      
-         self.vars.append('Pt')
+      if 'pt' in varlist and 'pt' not in self.vars:
+         data = mv.AddNewArray(data,Pt,'pt')      
+         self.vars.append('pt')
       if 'Tt' in varlist and 'Tt' not in self.vars:
          Tt = T/((1+(1.4-1)/2*mach**2)**(-1))              # total temperature
          data = mv.AddNewArray(data,Tt,'Tt')      
@@ -587,17 +591,33 @@ class Grid():
          data = mv.AddNewArray(data,vovervinf,'V/Vinf')      
          self.vars.append('V/Vinf')
       if 'Cp' in varlist and 'Cp' not in self.vars:
-         cp = (P-self.infs['P'])/(0.5*self.infs['rho']*self.infs['V']**2)
+         cp = (P-self.infs['p'])/(0.5*self.infs['rho']*self.infs['V']**2)
          data = mv.AddNewArray(data,cp,'Cp')      
          self.vars.append('Cp')
       if 'Cpt' in varlist and 'Cpt' not in self.vars :
-         cpt = (Pt-self.infs['P'])/(0.5*self.infs['rho']*self.infs['V']**2)
+         cpt = (Pt-self.infs['p'])/(0.5*self.infs['rho']*self.infs['V']**2)
          data = mv.AddNewArray(data,cpt,'Cpt')      
          self.vars.append('Cpt')
       if 'Vmag' in varlist and 'Vmag' not in self.vars:
          vmag = np.linalg.norm(v, axis=1)
          data = mv.AddNewArray(data,vmag,'Vmag')      
          self.vars.append('Vmag')
+
+      if 'pt/ptref' in varlist and 'pt/ptref' not in self.vars:
+         ptref = self.caseOptions['ref_vals']['pt']
+         data = mv.AddNewArray(data, Pt/ptref,'pt/ptref')      
+         self.vars.append('pt/ptref')
+
+      if 'p/pref' in varlist and 'p/pref' not in self.vars:
+         pref = self.caseOptions['ref_vals']['p']
+         data = mv.AddNewArray(data, P/pref,'p/pref')      
+         self.vars.append('p/pref')
+
+      if 'v/vref' in varlist and 'v/vref' not in self.vars:
+         vref = self.caseOptions['ref_vals']['V']
+         vmag = np.linalg.norm(v, axis=1)
+         data = mv.AddNewArray(data,vmag/vref,'v/vref')      
+         self.vars.append('v/vref')
 
       # == Turbomachinery Variables ==
       if 'alpha' in varlist and 'alpha' not in self.vars:
@@ -630,7 +650,7 @@ class Grid():
          self.vars.append('Pmech')
       if 'PK' in varlist and 'PK' not in self.vars:
          vmag = np.linalg.norm(v, axis=1)
-         PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs['P']+0.5*self.infs['rho']*self.infs['V']**2))
+         PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs['p']+0.5*self.infs['rho']*self.infs['V']**2))
          data = mv.AddNewArray(data,PK,'PK')      
          self.vars.append('PK')
       if 'phi' in varlist and 'phi' not in self.vars:
@@ -666,8 +686,11 @@ class Grid():
       N = len(rho)
 
       intvar = np.zeros((N, len(varnames)))
-      for name in varnames:
-         intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+      for i, name in enumerate(varnames):
+         try:
+            intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+         except:
+            intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, name))
 
       ncell = surf.GetOutput().GetNumberOfCells()
       #print(surf.GetOutput().GetCell(100).TriangleCenter())
