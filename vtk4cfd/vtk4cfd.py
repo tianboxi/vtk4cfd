@@ -160,22 +160,38 @@ class Grid():
       print('Data Range: ', self.drange)
          
    def getFreeStreamProperties(self, datatype='POINT',
-                               propertyNames=['p','V','rho','M']):
+                               propertyNames=None):
       """
       Probe a spcific point for freestream properties
+      --
+      propertyNamse:[pressure_name, velocity name, density name, mach number name]
       """
       loc = self.caseOptions['freestreamloc']
+      pN = propertyNames
+      if pN is None:
+         varnames = self.caseOptions['solvarnames']
+         if 'rho' in varnames: 
+            pN = [varnames['p'], varnames['V'], varnames['rho'], varnames['M']]
+         else: 
+            pN = [varnames['p'], varnames['V']]
+
       if datatype=='POINT':
          src = self.data
       else:
          src = self.datac
 
-      infState = self.probFlowField([loc], ['p','V','rho','M'], source=src)
-      infState['V'] =  [np.linalg.norm(infState['V'])]
+      comp = True
+      if len(pN) < 4: # incompressible flow 'p' 'V' only
+         comp = False
+         
+      infState = self.probFlowField([loc], pN, source=src)
+      infState[pN[1]] =  [np.linalg.norm(infState[pN[1]])]
       for state in infState:
          infState[state] = infState[state][0]
-      infState['pt'] =  infState['p']/((1+(1.4-1)/2*infState['M']**2)**(-1.4/(1.4-1)))
-      infState['T'] = infState['p']/(287.0*infState['rho'])
+      if comp:
+         infState['pt'] =  infState[pN[0]]/((1+(1.4-1)/2*infState[pN[3]]**2)**(-1.4/(1.4-1)))
+         infState['T'] = infState[pN[0]]/(287.0*infState[pN[2]])
+
       print('INF states: ', infState)
       return infState
 
