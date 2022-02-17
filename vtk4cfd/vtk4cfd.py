@@ -276,7 +276,7 @@ class Grid():
 
    def plotStreamlineMultiBlk(self, varname, points, x_range, 
                            surface=None, ax=None, 
-                           idir='both', slname=None, view=None):
+                           idir='both', slname=None, view=None, maxlength=2.0):
       """
       Plot streamline for multi-region or overset grids  
       (When discontinuities might exist in between blks)
@@ -302,7 +302,7 @@ class Grid():
             if idir == 'forward':
                while endx < x_range[1]:
                   pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
-                  sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=2.0)
+                  sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=maxlength)
                   sline = np.concatenate((sline, sline_next), axis=0)
                   endx = sline[-1,0]
                   counter = counter + 1
@@ -315,7 +315,7 @@ class Grid():
             elif idir == 'backward':
                while endx > x_range[0]:
                   pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
-                  sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=2.0)
+                  sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=maxlength)
                   sline = np.concatenate((sline, sline_next), axis=0)
                   endx = sline[-1,0]
                   counter = counter + 1
@@ -334,7 +334,7 @@ class Grid():
             allslines.append(sline)
 
          else:
-            print('No streamline plotted at ',thisPt)
+            print('No streamline found at ',thisPt)
 
       if slname:
          self.slines[slname] = allslines
