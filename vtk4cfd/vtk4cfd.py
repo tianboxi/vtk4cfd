@@ -204,6 +204,9 @@ class Grid():
       cut = self.cuts[surface]['vtkcut']
       triangulation = self.cuts[surface]['triangulation']
       normal = self.cuts[surface]['normal']
+      defvarname = self.caseOptions['solvarnames']
+      if varname in defvarname:
+         varname = defvarname[varname]
 
       vartoplot = vtk_to_numpy(mv.GetArray(cut, varname))
 
@@ -306,6 +309,10 @@ class Grid():
          view = view
          planar = False
          
+      defvarname = self.caseOptions['solvarnames']
+      if varname in defvarname:
+         varname = defvarname[varname]
+
       #nodes = vtk_to_numpy(mv.GetNodes(source))
       npt = len(points)
 
@@ -603,15 +610,17 @@ class Grid():
          self.vars.append('s')
       if 'V/Vinf' in varlist and 'V/Vinf' not in self.vars:
          vmag = np.linalg.norm(v, axis=1)
-         vovervinf = vmag/self.infs['V']
+         vovervinf = vmag/self.infs[varnames['V']]
          data = mv.AddNewArray(data,vovervinf,'V/Vinf')      
          self.vars.append('V/Vinf')
       if 'Cp' in varlist and 'Cp' not in self.vars:
-         cp = (P-self.infs['p'])/(0.5*self.infs['rho']*self.infs['V']**2)
+         cp = (P-self.infs[varnames['p']])/(0.5*self.infs[varnames['rho']]*\
+              self.infs[varnames['V']]**2)
          data = mv.AddNewArray(data,cp,'Cp')      
          self.vars.append('Cp')
       if 'Cpt' in varlist and 'Cpt' not in self.vars :
-         cpt = (Pt-self.infs['p'])/(0.5*self.infs['rho']*self.infs['V']**2)
+         cpt = (Pt-self.infs[varnames['p']])/(0.5*self.infs[varnames['rho']]*\
+               self.infs[varnames['V']]**2)
          data = mv.AddNewArray(data,cpt,'Cpt')      
          self.vars.append('Cpt')
       if 'Vmag' in varlist and 'Vmag' not in self.vars:
