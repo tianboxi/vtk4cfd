@@ -33,6 +33,7 @@ class Grid():
       self.fileName = filename
       self.caseOptions = self.setDefaultOptions(options)
       self.plotOptions = self.setDefaultPlotOptions(plotoptions)
+      self.tstrs, self.lstrs = self.setDefaultStrings()
       # this is where main data file is linked to
       self.data = None
       self.drange = {}
@@ -893,6 +894,30 @@ class Grid():
    def savePlot(self):
       pass
       #return fig, ax
+
+   def setDefaultStrings(self):
+      # set default latex expressions for plotting
+      title_strs = # with no units
+             {'alpha':r'$\alpha$',
+             'cl':r'$c_\ell$',
+             'cd':r'$c_d$',
+             'cmz':r'$c_{m_{c/4}}$',
+             'cT':r'$c_T$',
+             'cP':r'$c_P$',
+             'CL':r'$C_L$',
+             'CD':r'$C_D$',
+             }
+      label_strs =  # with units
+             {'alpha':r'$\alpha$ [deg]',
+             'cl':r'$c_\ell$',
+             'cd':r'$c_d$',
+             'cmz':r'$c_{m_{c/4}}$',
+             'cT':r'$c_T$',
+             'cP':r'$c_P$',
+             'CL':r'$C_L$',
+             'CD':r'$C_D$',
+             }
+      return title_strs, label_strs
    
 def findBoundaryEdges(edges):
    edgescopy = edges.tolist()
