@@ -84,6 +84,7 @@ class Grid():
             copt[op] = options[op]
          else:
             print(op, 'is not an option by default')
+            copt[op] = options[op]
       return copt
 
    def setDefaultPlotOptions(self, options):
@@ -567,12 +568,12 @@ class Grid():
          omega = self.caseOptions['RPM']*2*np.pi/60.0
 
          nodes_cyl = utils.CartToCyl(nodes,'coord')           # convert point coords to cylindrical system
-         v_cyl = CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
+         v_cyl = utils.CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
          w_cyl = np.zeros((N,3))                        # Compute relative velocity
          w_cyl[:,0] = v_cyl[:,0]
          w_cyl[:,1] = v_cyl[:,1] + omega*nodes_cyl[:,0]
          w_cyl[:,2] = v_cyl[:,2]
-         w = CylToCart(w_cyl, 'vector', nodes_cyl[:,1])
+         w = utils.CylToCart(w_cyl, 'vector', nodes_cyl[:,1])
          if 'rhoet' in varnames:
             machr = np.sqrt(w[:,0]**2+w[:,1]**2+w[:,2]**2)/np.sqrt(1.4*287*T)
 
@@ -676,7 +677,7 @@ class Grid():
          self.vars.append('Pmech')
       if 'PK' in varlist and 'PK' not in self.vars:
          vmag = np.linalg.norm(v, axis=1)
-         PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs['p']+0.5*self.infs['rho']*self.infs['V']**2))
+         PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs[varnames['p']]+0.5*self.infs[varnames['rho']]*self.infs[varnames['V']]**2))
          data = mv.AddNewArray(data,PK,'PK')      
          self.vars.append('PK')
       if 'phi' in varlist and 'phi' not in self.vars:
@@ -897,7 +898,8 @@ class Grid():
 
    def setDefaultStrings(self):
       # set default latex expressions for plotting
-      title_strs = # with no units
+      # with no units
+      title_strs =  \
              {'alpha':r'$\alpha$',
              'cl':r'$c_\ell$',
              'cd':r'$c_d$',
@@ -907,7 +909,8 @@ class Grid():
              'CL':r'$C_L$',
              'CD':r'$C_D$',
              }
-      label_strs =  # with units
+      # with units
+      label_strs =  \
              {'alpha':r'$\alpha$ [deg]',
              'cl':r'$c_\ell$',
              'cd':r'$c_d$',

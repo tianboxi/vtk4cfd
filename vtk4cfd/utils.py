@@ -261,3 +261,20 @@ def CylToCart(data,dtype='coord', theta=None):
     if n == 3:
       output[:,0] = data[:,2]
   return output
+
+def readFile(filename,nvar,splitby=None):
+   f = open(filename, 'r')
+   allvar = []
+   for i in range(nvar):
+      allvar.append([])
+   for line in f:
+      try:
+         for i in range(nvar):
+            if splitby:
+               allvar[i].append(float(str.split(line,splitby)[i]))
+            else:
+               allvar[i].append(float(str.split(line)[i]))
+      except:
+         continue
+   return allvar
+
