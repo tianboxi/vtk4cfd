@@ -32,7 +32,7 @@ class Grid():
       # set options
       self.fileName = filename
       self.caseOptions = self.setDefaultOptions(options)
-      self.plotOptions = self.setDefaultPlotOptions(plotoptions)
+      self.plotOptions = self.setDefaultPlotOptions(options)
       self.tstrs, self.lstrs = self.setDefaultStrings()
       # this is where main data file is linked to
       self.data = None
@@ -65,6 +65,11 @@ class Grid():
       # range of data
       self.updateDRange()
 
+      # perform grid transformation if requried 
+      #if 'transform' in options:
+      #   if options['transform'] is not None:
+      #      self.transform(options['transform']['translate'], options['transform']['rotate'])
+
    ## ===== Initialization Functions ===== ##
 
    def setDefaultOptions(self, options):
@@ -79,16 +84,21 @@ class Grid():
                             'rhoet':'EnergyStagnationDensity'},
       'ref_vals':{'p':101325.0}
       } 
+      non_def_ops = []
+      warning = False
       for op in options:
          if op in copt:
             copt[op] = options[op]
          else:
-            print(op, 'is not an option by default')
+            non_def_ops.append(op)
             copt[op] = options[op]
+            warning = True
+      if warning:
+         print('Some of the options has no default valuses in vtk4cfd')
       return copt
 
    def setDefaultPlotOptions(self, options):
-      popt = {
+      copt = {
               # contour plot options
               'cflevels':30,
               'clevels':30,
@@ -105,9 +115,11 @@ class Grid():
               'outline_spec':{'w':0.2, 'spec':'-k'},
              }
       for op in options:
-         if op in popt:
-            popt[op] = options[op]
-      return popt
+         if op in copt:
+            copt[op] = options[op]
+         else:
+            copt[op] = options[op]
+      return copt
 
    def setRefState(self):
       refstate_input = self.caseOptions['refstate']
@@ -159,7 +171,7 @@ class Grid():
          array = mv.GetArray(self.data, var)
          array_range = array.GetFiniteRange(-1)
          self.drange[var] = array_range
-      print('Data Range: ', self.drange)
+         #print('Data Range: ', self.drange)
          
    def getFreeStreamProperties(self, datatype='POINT',
                                propertyNames=None):
@@ -200,7 +212,7 @@ class Grid():
    ## ===== Plotting functions ========= ##
    
    def plotContour(self, varname, surface, ax=None, 
-                   cbar=True, clabel=None,
+                   cbar=True, clabel=None, cbar_wid='3%', 
                    axlim=None, cline=None, clevels=None):
 
       cut = self.cuts[surface]['vtkcut']
@@ -217,11 +229,15 @@ class Grid():
       else:
          fig = ax.get_figure()
 
+      
       if cline is not None:
-         nline = self.plotOptions['clevels']
-         color = self.plotOptions['clcolors']
-         cs = ax.tricontour(triangulation, vartoplot, nline, colors='k')
-         ax.clabel(cs, fontsize=6, inline=1)
+         nline = cline['nline']
+         color = cline['lcolor']
+         drange = self.drange[varname]
+         levels = np.linspace(drange[0], drange[1], nline)
+         cs = ax.tricontour(triangulation, vartoplot, levels, colors='k',
+         linewidths=0.1, linestyles='solid')
+         #ax.clabel(cs, fontsize=6, inline=1)
 
       if clevels is not None:
          vmin = clevels[0]
@@ -242,20 +258,20 @@ class Grid():
          # of ax and the padding between cax and ax will be fixed at 0.05 inch.
          divider = make_axes_locatable(ax)
          if self.plotOptions['cbar_loc'] == 'right':
-            cax = divider.append_axes("right", size=self.plotOptions['cbar_size'], 
+            cax = divider.append_axes("right", size=cbar_wid, 
             pad=self.plotOptions['cbar_pad'])
             # set color bar, extendrect=true to avoid pointy ends
             cbar = fig.colorbar(csf, cax=cax, orientation='vertical', 
                    label=clabel,extendrect=True)
          elif self.plotOptions['cbar_loc'] == 'bottom':
-            cax = divider.append_axes("bottom", size=self.plotOptions['cbar_size'], 
+            cax = divider.append_axes("bottom", size=cbar_wid, 
             pad=self.plotOptions['cbar_pad'])
             cbar = fig.colorbar(csf, cax=cax, orientation='horizontal', 
                    label=clabel,extendrect=True)
 
       ax.set_aspect('equal')
 
-   def plotVectors(self, varname, surface, ax, view, flip):
+   def plotVectors_old(self, varname, surface, ax, view, flip):
       """
       Plot vectors 
       """
@@ -294,10 +310,95 @@ class Grid():
       # the smaller the scale the longer the arrow
       ax.quiver(xplot[::100],yplot[::100],vxplot[::100],vyplot[::100],scale=300.0)
 
+   def plotUniformVectors(self, varname, allpts, view, flip, ax, 
+             width = 0.002, scale=300.0, normalized=False):
+
+      #x_range, yrange = xyrange[0] , xyrange[1]
+      #x = np.linspace(x_range[0], x_range[1], nx)
+      #y = np.linspace(y_range[0], y_range[1], ny)
+      #for xx in x:
+      #   for yy in y:
+      #      pt = 
+      defvarname = self.caseOptions['solvarnames']
+      if varname in defvarname:
+         varname = defvarname[varname]
+      pdata = self.probFlowField(allpts, [varname])
+      vals = np.asarray(pdata[varname])
+      px, py = self.getPlotXY(np.asarray(allpts), view, flip)
+      vx, vy = self.getPlotXY(np.asarray(vals), view, flip)
+
+      ax.quiver(px, py, vx, vy, scale=300.0, width=width)
+      
+
+   def plotVectors(self, varname, surface, ax, view, flip, shaftwidth = 1.0/1500.0,
+                   scale=300.0, everyN=100, xyrange=None, normalized=False):
+      """ 
+      Plot vectors 
+      """
+      cut = self.cuts[surface]['vtkcut']
+      #view = self.cuts[surface]['view']
+      nodes = vtk_to_numpy(mv.GetNodes(cut))
+      defvarname = self.caseOptions['solvarnames']
+      if varname in defvarname:
+         varname = defvarname[varname]
+      vartoplot = vtk_to_numpy(mv.GetArray(cut, varname))
+      #TODO mask some of the points
+      #for ii in range(nodes.shape[0]):
+      x,y,z = nodes[:,0], nodes[:,1], nodes[:,2]
+      vx, vy, vz = vartoplot[:,0], vartoplot[:,1], vartoplot[:,2]
+      if view == '-x' or view ==  'front':
+         x, y = -1*nodes[:,2], nodes[:,1]
+         vx, vy = -1*vartoplot[:,2], vartoplot[:,1]
+      elif view == '+x' or view == 'back':
+         x, y = nodes[:,2], nodes[:,1]
+         vx, vy = vartoplot[:,2], vartoplot[:,1]
+      elif view == '-y' or view == 'top':
+         x, y = nodes[:,0], -1*nodes[:,2]
+         vx, vy = vartoplot[:,0],-1*vartoplot[:,2]
+      elif view == '+y' or view == 'bottom':
+         x, y = nodes[:,0], nodes[:,2]
+         vx, vy = vartoplot[:,0], vartoplot[:,2]
+      elif view == '-z' or view == 'right':
+         x, y = nodes[:,0], nodes[:,1]
+         vx, vy = vartoplot[:,0], vartoplot[:,1]
+      elif view == '+z' or view == 'left':
+         x, y = nodes[:,0], -1*nodes[:,1]
+         vx, vy = vartoplot[:,0], -1*vartoplot[:,1]
+      if flip:
+         xplot, yplot = y, x
+         vxplot, vyplot = vy, vx
+      else:
+         xplot, yplot = x, y
+         vxplot, vyplot = vx, vy
+      # do normalization
+      if normalized:
+         ll = np.sqrt(np.asarray(vxplot)**2 + np.asarray(vyplot)**2)
+         vxplot = vxplot/ll
+         vyplot = vyplot/ll
+      # apply mask
+      if xyrange is not None:
+         # create a masking array for each point
+         mask = np.zeros(len(nodes), dtype=bool)
+         for ip, point in enumerate(zip(xplot, yplot)):
+            mask[ip] = True
+            if point[0] > xyrange[0][0] and point[0] < xyrange[0][1]:
+               if point[1] > xyrange[1][0] and point[1] < xyrange[1][1]: 
+                  mask[ip] = False 
+         xplot = np.ma.compressed(np.ma.masked_array(xplot, mask=mask))
+         yplot = np.ma.compressed(np.ma.masked_array(yplot, mask=mask))
+         vxplot = np.ma.compressed(np.ma.masked_array(vxplot, mask=mask))
+         vyplot = np.ma.compressed(np.ma.masked_array(vyplot, mask=mask))
+            
+      # the smaller the scale the longer the arrow
+      # linewidth controls quiver thickness
+      nn = everyN
+      #ax.quiver(xplot[::nn],yplot[::nn],vxplot[::nn],vyplot[::nn], scale=scale, width=shaftwidth)
+      ax.quiver(xplot[::nn],yplot[::nn],vxplot[::nn],vyplot[::nn], scale=scale)
+
 
    def plotStreamlineMultiBlk(self, varname, points, x_range, 
                            surface=None, ax=None, 
-                           idir='both', slname=None, view=None, maxlength=2.0):
+                           idir='both', slname=None, view=None, maxlength=2.0, maxstep=None):
       """
       Plot streamline for multi-region or overset grids  
       (When discontinuities might exist in between blks)
@@ -327,7 +428,7 @@ class Grid():
             if idir == 'forward':
                while endx < x_range[1]:
                   pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
-                  sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=maxlength)
+                  sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=maxlength, maxstep=maxstep)
                   sline = np.concatenate((sline, sline_next), axis=0)
                   endx = sline[-1,0]
                   counter = counter + 1
@@ -340,7 +441,7 @@ class Grid():
             elif idir == 'backward':
                while endx > x_range[0]:
                   pt_next = sline[-1,:] - (sline[-1,:] - sline[-2,:])*2.0
-                  sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=maxlength)
+                  sline_next = mv.Streamline(self.data, varname, pt_next, idir='backward', planar=planar, maxlength=maxlength, maxstep=maxstep)
                   sline = np.concatenate((sline, sline_next), axis=0)
                   endx = sline[-1,0]
                   counter = counter + 1
@@ -364,13 +465,36 @@ class Grid():
       if slname:
          self.slines[slname] = allslines
 
-      return 
+      return allslines
 
 
-   
+   def getPlotXY(self, nodes, view, flip):
+      # look against the stream
+      if view == '-x' or view ==  'front':
+         x, y = -1*nodes[:,2], nodes[:,1]
+      # look along the stream
+      elif view == '+x' or view == 'back':
+         x, y = nodes[:,2], nodes[:,1]
+      # look from top
+      elif view == '-y' or view == 'top':
+         x, y = nodes[:,0], -1*nodes[:,2]
+      # look from bottom
+      elif view == '+y' or view == 'bottom':
+         x, y = nodes[:,0], nodes[:,2]
+      # look from right (to the stream)
+      elif view == '-z' or view == 'right':
+         x, y = nodes[:,0], nodes[:,1]
+      # look from left 
+      elif view == '+z' or view == 'left':
+         x, y = nodes[:,0], -1*nodes[:,1]
+      if flip:
+         xplot, yplot = y, x
+      else:
+         xplot, yplot = x, y
+      return xplot, yplot
 
-   def makeSlice(self, center, normal, slicename=None, source=None, 
-                 view='-z', flip=False, saveboundary=False, triangulize=True):
+   def makeSlice(self, center, normal, view='-z', flip=False, slicename=None, source=None, 
+                 saveboundary=False, triangulize=True):
       """
       make a slice cut of the flow domain  
       """
@@ -389,22 +513,7 @@ class Grid():
       #roll = np.arctan2(axis[2], axis[1]) - np.pi/2.0
       ## do the transformation
       # Set viewing direction
-      if view == '-x':
-         x, y = nodes[:,1], nodes[:,2]
-      elif view == '+x':
-         x, y = -1*nodes[:,1], nodes[:,2]
-      elif view == '-y':
-         x, y = -1*nodes[:,0], nodes[:,2]
-      elif view == '+y':
-         x, y = nodes[:,0], nodes[:,2]
-      elif view == '-z':
-         x, y = nodes[:,0], nodes[:,1]
-      elif view == '+z':
-         x, y = -1*nodes[:,0], nodes[:,1]
-      if flip:
-         xplot, yplot = y, x
-      else:
-         xplot, yplot = x, y 
+      xplot, yplot = self.getPlotXY(nodes, view, flip)
       # Convert 3D nodes to 2D coord system on the cut surface
       triangulation = tri.Triangulation(xplot, yplot, triangles)
       # save cut for later use if slicename is specified
@@ -414,24 +523,40 @@ class Grid():
 
       return cut, triangulation
 
-   def makeClip(self, clip_limit, center, normal, clipname=None, source=None):
+   #def makeClip(self, clip_limit, center, normal, clipname=None, source=None):
+   #   """
+   #   make a clip
+   #   ---
+   #   input param:
+   #   
+   #   clip_limit: list, [xmin, xmax, ymin, ymax]
+   #   """
+   #   clip_plane = []
+   #   clip_plane.append(mv.CreatePlaneFunction((clip_limit[0],0.0,0.5),(1,0,0)))
+   #   clip_plane.append(mv.CreatePlaneFunction((clip_limit[1],0.0,0.5),(-1,0,0)))
+   #   clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[2],0.5),(0,1,0)))
+   #   clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[3],0.5),(0,-1,0)))
+   #   data = self.data
+   #   for clip in clip_plane:
+   #      data = mv.Clip(data, clip)
+
+   #   self.clips[clipname] = data
+
+   def makeClip(self, center, normal, clipname=None, source=None, data=None):
       """
       make a clip
       ---
       input param:
-      
-      clip_limit: list, [xmin, xmax, ymin, ymax]
       """
-      clip_plane = []
-      clip_plane.append(mv.CreatePlaneFunction((clip_limit[0],0.0,0.5),(1,0,0)))
-      clip_plane.append(mv.CreatePlaneFunction((clip_limit[1],0.0,0.5),(-1,0,0)))
-      clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[2],0.5),(0,1,0)))
-      clip_plane.append(mv.CreatePlaneFunction((0.0,clip_limit[3],0.5),(0,-1,0)))
-      data = self.data
-      for clip in clip_plane:
-         data = mv.Clip(data, clip)
+      if data is None:
+         data = self.data
 
-      self.clips[clipname] = data
+      clip_plane = mv.CreatePlaneFunction(center,normal)
+      data_clip = mv.Clip(data, clip_plane)
+      if clipname is not None:
+         self.clips[clipname] = data_clip
+      
+      return data_clip
 
    def makeContourSurfs(self, varnames, drange):
       """
@@ -465,12 +590,19 @@ class Grid():
    #      ax.plot(pts[:,0], pts[:,1], '-k')
 
 
-   def getMeshBoundaries(self, surface, ax=None, name=None):
+   def getMeshBoundaries(self, source=None, surface=None, ax=None, name=None):
       """
       get the boundary curves of a mesh (vtkFeatureEdges)
       """
-      surface = self.cuts[surface]['vtkcut']
-      edge_pts = mv.GetFeatureEdges(surface)
+      if source is None:
+         source = self.data
+      #if surface:
+      #   data = self.cuts[surface]['vtkcut']
+      #   edge_pts = mv.GetFeatureEdges(data)
+      #if mesh:
+      #   data = self.clips[mesh]
+
+      edge_pts = mv.GetFeatureEdges(source, surface=surface)
       if name is not None:
          self.outlines[name] = edge_pts
       if ax is not None:
@@ -479,18 +611,22 @@ class Grid():
             y = [edge[0][1], edge[1][1]]
             ax.plot(x, y, '-k')
 
-   def plotSavedOutlines(self, name, ax): 
+   def plotSavedOutlines(self, name, ax, view='right', flip=False): 
       for edge in self.outlines[name]:
-         x = [edge[0][0], edge[1][0]]
-         y = [edge[0][1], edge[1][1]]
+         #x = [edge[0][0], edge[1][0]]
+         #y = [edge[0][1], edge[1][1]]
+         this_edge = np.asarray([edge[0],edge[1]])
+         x, y = self.getPlotXY(this_edge, view, flip)
          ax.plot(x, y, self.plotOptions['outline_spec']['spec'],
                  linewidth=self.plotOptions['outline_spec']['w'])
 
-   def plotSavedStreamline(self, name, ax): 
+   def plotSavedStreamline(self, name, ax, view='right', flip=False): 
       slines = self.slines[name]
       for sline in slines:
-         ax.plot(sline[:-1,0],sline[:-1,1], 
-         self.plotOptions['sline_spec']['spec'],
+         this_line = np.asarray(sline)
+         x, y = self.getPlotXY(this_line, view, flip)
+         #ax.plot(sline[:-1,0],sline[:-1,1], 
+         ax.plot(x, y, self.plotOptions['sline_spec']['spec'],
          linewidth=self.plotOptions['sline_spec']['w'])
 
    def plotGridLines(self,triangulation,ax):
@@ -498,6 +634,16 @@ class Grid():
 
 
    ## ====== CFD data processing ======= ##
+   def transform(self, translate, rotate):
+      """
+      transform dataset
+      """
+      data = self.data
+      data_trans = mv.Transform(data, translate, rotate)
+      self.data = data_trans
+
+      return data_trans
+
    def probFlowField(self, points, varlist, source=None):
       """
       prob flow field variables at a list of locations 
@@ -534,6 +680,29 @@ class Grid():
 
       return data
 
+   def computeCustomVar(self, inputvars, outputvar, compute_fun):
+      """
+      compute a customized variable by passing a function: compute_fun
+      """
+      data = self.data
+      allvars = self.vars
+      inputvar_dic = {}
+      def_varnames = self.caseOptions['solvarnames']
+      for varname in inputvars:
+         if varname in def_varnames:
+            inputvar_dic[varname] = vtk_to_numpy(mv.GetArray(data, def_varnames[varname]))
+         elif varname in allvars: 
+            inputvar_dic[varname] = vtk_to_numpy(mv.GetArray(data, varname))
+         else:
+            print(varname+' DO NOT EXIST!!!!')
+
+      outputvar_array = compute_fun(inputvar_dic, self)
+
+      if outputvar not in self.vars:
+         data = mv.AddNewArray(data, outputvar_array, outputvar)      
+         self.vars.append(outputvar)
+
+
    def computeVar(self, varlist):
       """
       Given the basic flow solutions, compute other flow variables 
@@ -564,11 +733,11 @@ class Grid():
 
       N = len(rho)
 
+      nodes_cyl = utils.CartToCyl(nodes,'coord')        # convert point coords to cylindrical system
+      v_cyl = utils.CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
+
       if 'RPM' in self.caseOptions:
          omega = self.caseOptions['RPM']*2*np.pi/60.0
-
-         nodes_cyl = utils.CartToCyl(nodes,'coord')           # convert point coords to cylindrical system
-         v_cyl = utils.CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
          w_cyl = np.zeros((N,3))                        # Compute relative velocity
          w_cyl[:,0] = v_cyl[:,0]
          w_cyl[:,1] = v_cyl[:,1] + omega*nodes_cyl[:,0]
@@ -577,7 +746,13 @@ class Grid():
          if 'rhoet' in varnames:
             machr = np.sqrt(w[:,0]**2+w[:,1]**2+w[:,2]**2)/np.sqrt(1.4*287*T)
 
-
+      # cylindrical system coords (for verification)
+      if 'rr' in varlist and 'rr' not in self.vars:
+         data = mv.AddNewArray(data,nodes_cyl[:,0],'rr')      
+         self.vars.append('rr')
+      if 'theta' in varlist and 'theta' not in self.vars:
+         data = mv.AddNewArray(data,nodes_cyl[:,1],'theta')      
+         self.vars.append('theta')
       # Basic flow variables 
       if 'vx' in varlist and 'vx' not in self.vars:
          data = mv.AddNewArray(data,v[:,0],'vx')      
@@ -588,6 +763,12 @@ class Grid():
       if 'vz' in varlist and 'vz' not in self.vars:
          data = mv.AddNewArray(data,v[:,2],'vz')
          self.vars.append('vz')
+      if 'vt' in varlist and 'vt' not in self.vars:
+         data = mv.AddNewArray(data,v_cyl[:,1],'vt')
+         self.vars.append('vt')
+      if 'vr' in varlist and 'vr' not in self.vars:
+         data = mv.AddNewArray(data,v_cyl[:,0],'vr')
+         self.vars.append('vr')
       if 'et' in varlist and 'et' not in self.vars:
          et = rhoet/rho
          data = mv.AddNewArray(data,et,'et')
@@ -607,7 +788,10 @@ class Grid():
          data = mv.AddNewArray(data,Tt,'Tt')      
          self.vars.append('Tt')
       if 's' in varlist and 's' not in self.vars:
-         S = 287*(1/(1.4-1)*np.log(T)+np.log(1/rho))        # Entropy
+         #S = 287*(1/(1.4-1)*np.log(T)+np.log(1/rho))        # Entropy
+         Tinf = self.infs['T']
+         rhoinf = self.infs[varnames['rho']]
+         S = 287*(1/(1.4-1)*np.log(T/Tinf)+np.log(rhoinf/rho))        # Entropy
          data = mv.AddNewArray(data,S,'s')      
          self.vars.append('s')
       if 'V/Vinf' in varlist and 'V/Vinf' not in self.vars:
@@ -621,7 +805,7 @@ class Grid():
          data = mv.AddNewArray(data,cp,'Cp')      
          self.vars.append('Cp')
       if 'Cpt' in varlist and 'Cpt' not in self.vars :
-         cpt = (Pt-self.infs[varnames['p']])/(0.5*self.infs[varnames['rho']]*\
+         cpt = (Pt-self.infs['pt'])/(0.5*self.infs[varnames['rho']]*\
                self.infs[varnames['V']]**2)
          data = mv.AddNewArray(data,cpt,'Cpt')      
          self.vars.append('Cpt')
@@ -648,7 +832,8 @@ class Grid():
 
       # == Turbomachinery Variables ==
       if 'alpha' in varlist and 'alpha' not in self.vars:
-         alpha = -np.arctan2(v_cyl[:,1],np.sqrt(v_cyl[:,2]**2+v_cyl[:,0]**2)* (v_cyl[:,2]/np.absolute(v_cyl[:,2])) )/np.pi*180.0
+         alpha = np.arctan2(v_cyl[:,1],np.sqrt(v_cyl[:,2]**2+v_cyl[:,0]**2))/np.pi*180.0
+         #*(v_cyl[:,2]/np.absolute(v_cyl[:,2])) )/np.pi*180.0
          #alpha = -np.arctan2(v_cyl[:,1],v_cyl[:,2])/m.pi*180
          data = mv.AddNewArray(data,alpha,'alpha')      
          self.vars.append('alpha')
@@ -668,6 +853,10 @@ class Grid():
       if 'W' in varlist and 'W' not in self.vars:
          data = mv.AddNewArray(data,w,'W')      
          self.vars.append('W')
+      if 'Wmag' in varlist and 'Wmag' not in self.vars:
+         wmag = np.linalg.norm(w, axis=1)
+         data = mv.AddNewArray(data,wmag,'Wmag')      
+         self.vars.append('Wmag')
       if 'Wt' in varlist and 'Wt' not in self.vars:
          data = mv.AddNewArray(data,w_cyl[:,1],'Wt')      
          self.vars.append('Wt')
@@ -681,7 +870,7 @@ class Grid():
          data = mv.AddNewArray(data,PK,'PK')      
          self.vars.append('PK')
       if 'phi' in varlist and 'phi' not in self.vars:
-         phi = v[:,0]/(self.caseOptions['rtip']*omega)
+         phi = v[:,0]/(self.caseOptions['tip_radius']*omega)
          data = mv.AddNewArray(data,phi,'phi')      
          self.vars.append('phi')
 
@@ -751,12 +940,16 @@ class Grid():
       normal = self.cuts[surface]['normal']
       defvarnames = self.caseOptions['solvarnames']
 
-      nodes = vtk_to_numpy(mv.GetNodes(cut))
+      nodes = vtk_to_numpy(mv.GetNodes(surf))
       N = len(nodes)
 
       intvar = np.zeros((N, len(varnames)))
-      for name in varnames:
-         intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+
+      for i, name in enumerate(varnames):
+         try:
+            intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, defvarnames[name]))
+         except:
+            intvar[:,i] = vtk_to_numpy(mv.GetArray(surf, name))
 
       ncell = surf.GetOutput().GetNumberOfCells()
       varsum = np.zeros(len(varnames))
@@ -863,10 +1056,12 @@ class Grid():
       print('GRID info, ncells: ', self.ncell, ', npoints: ', self.npoints, 
        ', narray: ', self.narray, ', array names: ', self.arrayNames)
 
-      for name in self.caseOptions['solvarnames']:
-         varname = self.caseOptions['solvarnames'][name]
-         if varname in self.arrayNames:
-            self.vars.append(varname)
+      #for name in self.caseOptions['solvarnames']:
+      #   varname = self.caseOptions['solvarnames'][name]
+      #   if varname in self.arrayNames:
+      #      self.vars.append(varname)
+      for name in self.arrayNames:
+         self.vars.append(name)
 
 
    def exportVTK(self, filename, varlist=None):

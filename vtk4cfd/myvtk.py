@@ -365,33 +365,72 @@ def AddPointID(source):
   idfilter.Update()
   return idfilter
 
-def GetFeatureEdges(source, featureEdge=False):
+def GetFeatureEdges(source, surface=None, featureEdge=True):
 
+  if surface:
+     center, normal = surface['center'], surface['normal']
+     nnormal = [-1*normal[0], -1*normal[1], -1*normal[2]]
+     plane = CreatePlaneFunction(center, normal)
+     center = np.asarray(center)+np.asarray(normal)*0.001
+     #center[2] = center[2]+0.001
+     #plane1 = CreatePlaneFunction(center, nnormal)
+     # make clip 
+     source = Clip(source, plane) 
+     #source = Clip(source, plane1)
+
+  # convert data to polydata
+  gfilter = vtk.vtkGeometryFilter()
+  gfilter.SetInputConnection(source.GetOutputPort())
+
+  # extract feature edges
   npt = source.GetOutput().GetNumberOfPoints()
+  gfilter.Update()
+
   print('number of points: ', npt)
+  
   source = AddPointID(source)
   fedge = vtk.vtkFeatureEdges()
-  fedge.SetInputConnection(source.GetOutputPort())
-  fedge.BoundaryEdgesOn()
+  fedge.SetInputConnection(gfilter.GetOutputPort())
   if featureEdge:
      fedge.FeatureEdgesOn()
+     fedge.SetFeatureAngle(60.0)
   else:
      fedge.FeatureEdgesOff()
+
+  fedge.BoundaryEdgesOff()
   fedge.ManifoldEdgesOff()
   fedge.NonManifoldEdgesOff()
   fedge.Update()
-  nline = fedge.GetOutput().GetLines().GetNumberOfCells()
+  
+  # make slice
+  #fslice = vtk.vtkCutter()
+  #fslice.SetCutFunction(plane)
+  #print(fedge.GetOutput().GetLines())
+  #fslice.SetInputData(fedge.GetOutput())
+  #fslice.Update()
+  #fslice = Cut(fedge.GetOutput().GetLines(), plane, tri=False)
+  #print(fslice.GetOutput())
+  # get edges
+  fslice = fedge
+  nline = fslice.GetOutput().GetLines().GetNumberOfCells()
+  print('number of feature edges: ', nline)
   edge_ids = []
   for ii in range(nline):
      ptidlist = vtk.vtkIdList()
-     fedge.GetOutput().GetLines().GetCellAtId(ii, ptidlist)
+     fslice.GetOutput().GetLines().GetCellAtId(ii, ptidlist)
      this_edge_ids = [ptidlist.GetId(0), ptidlist.GetId(1)]
      edge_ids.append(this_edge_ids)
-  pts = vtk_to_numpy(fedge.GetOutput().GetPoints().GetData())
+  pts = vtk_to_numpy(fslice.GetOutput().GetPoints().GetData())
   edge_pts = []
   for edge in edge_ids:
      this_edge_pts = [pts[edge[0]], pts[edge[1]]]
-     edge_pts.append(this_edge_pts)
+     save_edge = True 
+     for point in this_edge_pts:
+        dis = plane.DistanceToPlane(point)
+        if dis > 0.001:
+           save_edge = False
+     if save_edge:
+        edge_pts.append(this_edge_pts)
   #n = fedge.GetOutput().GetNumberOfPoints()
   #print('number of boundary points: ', n)
   return edge_pts 
@@ -455,6 +494,22 @@ def AddNewArray(source,array,name):
         newarray.SetComponent(i,j,array[i,j])
   source.GetOutput().GetPointData().AddArray(newarray)
   return source
+
+def Transform(source, translate, rotate):
+   
+   trans = vtk.vtkTransform()
+   trans.Translate(translate)
+   trans.RotateWXYZ(*rotate)
+
+   trans.Update()
+
+   dfilter = vtk.vtkTransformFilter()
+   dfilter.TransformAllInputVectorsOn()
+   dfilter.SetTransform(trans)
+   dfilter.SetInputConnection(source.GetOutputPort())
+   dfilter.Update()
+
+   return dfilter
 
 #def CalcQuantities(source):
 #  calc = vtk.vtkArrayCalculator()
@@ -694,7 +749,7 @@ def Glyph(source,cl,name,params=[500,0.11],scalebyvectoron=0):
   actor = CreateActor(mapper)
   return actor
 
-def Streamline(source,name,point,idir='both',srctype='singlept',maxlength=1000.0, planar=False):
+def Streamline(source,name,point,idir='both',srctype='singlept',maxlength=1000.0, maxstep=None, planar=False):
   source = SetActiveData(source,name)
   tracer = vtk.vtkStreamTracer()
   tracer.SetInputConnection(source.GetOutputPort())
@@ -715,9 +770,11 @@ def Streamline(source,name,point,idir='both',srctype='singlept',maxlength=1000.0
      tracer.SetSurfaceStreamlines(True)
   else:
      tracer.SetSurfaceStreamlines(False)
+
+  if maxstep:
+     tracer.SetMaximumIntegrationStep(maxstep)
   #tracer.SetInitialIntegrationStep(0.0001)
   #tracer.SetMinimumIntegrationStep(0.00001)
-  #tracer.SetMaximumIntegrationStep(0.001)
   tracer.SetMaximumPropagation(maxlength)
   tracer.Update()
 

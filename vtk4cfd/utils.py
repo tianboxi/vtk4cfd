@@ -230,7 +230,7 @@ def CartToCyl(data, dtype='coord',theta=None):
   output = np.empty([N,n])
   if dtype == 'coord':
     output[:,0] = np.sqrt(data[:,1]**2+data[:,2]**2)
-    output[:,1] = np.arctan2(data[:,2],data[:,1])
+    output[:,1] = np.arctan2(data[:,2],data[:,1]) 
     #for i in range(N):
       #if data[i,2]>=0:
       #  output[i,1] = acos(data[i,1]/output[i,0])
