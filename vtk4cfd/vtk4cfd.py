@@ -41,11 +41,12 @@ class Grid():
       self.vars = []
       # if this is an overset grid
       overset = self.caseOptions['overset']
+      per_copy = self.caseOptions['per_copy']
       # import data
       if filetype == 'VTK':
          self.importVTK(filename, datatype, overset)
       elif filetype == 'CGNS':
-         self.importCGNS(filename, datatype, overset)
+         self.importCGNS(filename, datatype, overset, per_copy)
       else:
          raise NotImplementedError
          print('Type of gridfile: '+filetype+'not implemented')
@@ -82,7 +83,8 @@ class Grid():
       'solvarnames': {'rho':'Density', 'p':'Pressure', 'T':'Temperature',
                             'V':'Velocity', 'M':'Mach',  
                             'rhoet':'EnergyStagnationDensity'},
-      'ref_vals':{'p':101325.0}
+      'ref_vals':{'p':101325.0},
+      'per_copy':None,
       } 
       non_def_ops = []
       warning = False
@@ -105,6 +107,7 @@ class Grid():
               'clcolors':'k',
               'cmap':'coolwarm',
               'cextend':'both',
+              'cline_wid':0.2,
               # color bar options
               'cbar_size':'3%',
               'cbar_loc':'right', 
@@ -119,6 +122,10 @@ class Grid():
             copt[op] = options[op]
          else:
             copt[op] = options[op]
+
+      if 'fontsize' in copt:
+         rcParams.update({'font.size': copt['fontsize']})
+
       return copt
 
    def setRefState(self):
@@ -126,8 +133,8 @@ class Grid():
       if refstate_input is not None:
          pRef = refstate_input['pRef']
          TRef = refstate_input['TRef']
-         rhoRef = pRef/(287.05*TRef)
-
+         rhoRef = refstate_input['rhoRef']
+         #rhoRef = pRef/(287.05*TRef)
          uRef = np.sqrt(pRef/rhoRef)
 
          print('REF states: P=', pRef, ', T=', TRef, 
@@ -211,9 +218,9 @@ class Grid():
 
    ## ===== Plotting functions ========= ##
    
-   def plotContour(self, varname, surface, ax=None, 
-                   cbar=True, clabel=None, cbar_wid='3%', 
-                   axlim=None, cline=None, clevels=None):
+   def plotContour(self, varname, surface, ax=None, rt=None, cbar_rt=None,
+                   cbar=True, clabel=None, cbar_wid='3%', cbar_str=None,
+                   axlim=None, cline=None, clevels=None, cclabel=None):
 
       cut = self.cuts[surface]['vtkcut']
       triangulation = self.cuts[surface]['triangulation']
@@ -229,15 +236,10 @@ class Grid():
       else:
          fig = ax.get_figure()
 
-      
-      if cline is not None:
-         nline = cline['nline']
-         color = cline['lcolor']
-         drange = self.drange[varname]
-         levels = np.linspace(drange[0], drange[1], nline)
-         cs = ax.tricontour(triangulation, vartoplot, levels, colors='k',
-         linewidths=0.1, linestyles='solid')
-         #ax.clabel(cs, fontsize=6, inline=1)
+      if rt:
+         # reduce number of ticks
+         ax.set_xticks(ax.get_xticks()[::rt[0]]) 
+         ax.set_yticks(ax.get_yticks()[::rt[1]]) 
 
       if clevels is not None:
          vmin = clevels[0]
@@ -247,11 +249,25 @@ class Grid():
       else:
          levels = self.plotOptions['cflevels']
 
+      if cline is not None:
+         nline = cline['nline']
+         color = cline['lcolor']
+         drange = self.drange[varname]
+         #levels = np.linspace(drange[0], drange[1], nline)
+         cs = ax.tricontour(triangulation, vartoplot, levels, colors='k',
+         linewidths=self.plotOptions['cline_wid'], linestyles='solid')
+         #ax.clabel(cs, fontsize=6, inline=1)
+
+
+
       if clabel is None:
          clabel = varname
 
       csf = ax.tricontourf(triangulation, vartoplot, levels=levels, 
             cmap=self.plotOptions['cmap'], extend=self.plotOptions['cextend'])
+
+      if cclabel:
+         ax.clabel(cs, inline=1, fontsize=6)
 
       if cbar:
          # create an axes on the right side of ax. The width of cax will be 3%
@@ -268,6 +284,12 @@ class Grid():
             pad=self.plotOptions['cbar_pad'])
             cbar = fig.colorbar(csf, cax=cax, orientation='horizontal', 
                    label=clabel,extendrect=True)
+
+         if cbar_str:
+            cbar.set_ticklabels([cbar_str.format(i) for i in cbar.get_ticks()])
+
+         if cbar_rt:
+            cbar.set_ticks(cbar.get_ticks()[::cbar_rt])
 
       ax.set_aspect('equal')
 
@@ -427,7 +449,10 @@ class Grid():
             counter = 0
             if idir == 'forward':
                while endx < x_range[1]:
-                  pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
+                  try:
+                     pt_next = sline[-1,:] + (sline[-1,:] - sline[-2,:])*2.0
+                  except:
+                     pt_next = sline[-1,:]
                   sline_next = mv.Streamline(source, varname, pt_next, idir='forward', planar=planar, maxlength=maxlength, maxstep=maxstep)
                   sline = np.concatenate((sline, sline_next), axis=0)
                   endx = sline[-1,0]
@@ -503,7 +528,11 @@ class Grid():
       plane = mv.CreatePlaneFunction(center, normal)
       cut = mv.Cut(source,plane,tri=triangulize)
       # Get triangles from vtk cut 
-      triangles = np.asarray(mv.GetTriangles(cut))
+      #triangles = np.asarray(mv.GetTriangles(cut))
+      if triangulize:
+         cells = np.asarray(mv.GetCellIDs(cut, 3))
+      else:
+         cells = np.asarray(mv.GetCellIDs(cut, 4))
       # Reproduce triangulation with matplotlib
       nodes = vtk_to_numpy(mv.GetNodes(cut))
       ## TODO rotate to a view such that the 2D plane is x-y plane (looking against z)
@@ -513,15 +542,95 @@ class Grid():
       #roll = np.arctan2(axis[2], axis[1]) - np.pi/2.0
       ## do the transformation
       # Set viewing direction
-      xplot, yplot = self.getPlotXY(nodes, view, flip)
+      plotx, ploty = self.getPlotXY(nodes, view, flip)
+      pxrange = [np.min(plotx), np.max(plotx)]
+      pyrange = [np.min(ploty), np.max(ploty)]
       # Convert 3D nodes to 2D coord system on the cut surface
-      triangulation = tri.Triangulation(xplot, yplot, triangles)
+      if triangulize:
+         triangulation = tri.Triangulation(plotx, ploty, cells)
+      else:
+         triangulation = None
       # save cut for later use if slicename is specified
       if slicename:
          self.cuts[slicename] = \
-         {'vtkcut':cut, 'triangulation':triangulation, 'view':view, 'normal':normal}
+         {'vtkcut':cut, 'type':'plane', 'triangulation':triangulation, 
+         'view':view, 'normal':normal}
+         print('Slice '+slicename+': Xrange',pxrange,' Yrange',pyrange)
 
       return cut, triangulation
+
+   def makeCylSlice(self, center, radius, axis, triangulize=True,
+                  flip=False, view='+z', slicename=None, source=None):
+      """
+      make a cylindrical slice cut of the flow domain (unwraped) 
+      """
+      if source is None:
+         source = self.data
+      # make cylindrical surface function for cutting
+      surf = mv.CreateCylinderFunction(center, axis, radius)
+      cut = mv.Cut(source,surf,tri=triangulize)
+      if triangulize:
+         cells = np.asarray(mv.GetCellIDs(cut, 3))
+      else:
+         cells = np.asarray(mv.GetCellIDs(cut, 4))
+      # Get triangles from vtk cut 
+      #triangles = np.asarray(mv.GetTriangles(cut))
+      # Reproduce triangulation with matplotlib
+      nodes = vtk_to_numpy(mv.GetNodes(cut))
+      # unwrap cylindrical surface with x axis
+      plotx = nodes[:,0]
+      plottheta = np.arctan2(nodes[:,2], nodes[:,1])
+      ploty = radius*plottheta
+      nodes_new = np.asarray([plotx, ploty, [0.0]*len(plotx)]).T
+      pxrange = [np.min(plotx), np.max(plotx)]
+      pyrange = [np.min(ploty), np.max(ploty)]
+
+      narray = cut.GetOutput().GetPointData().GetNumberOfArrays()
+      scalardata = {}
+      vecdata = {}
+      for ii in range(narray):
+         name = cut.GetOutput().GetPointData().GetArrayName(ii)
+         this_data = vtk_to_numpy(mv.GetArray(cut, name))
+         #print(name, len(this_data))
+         if len(this_data.shape)>1:
+            vecdata[name] = this_data
+            #print('VEC', name)
+         elif len(this_data.shape)==1:
+            scalardata[name] = this_data
+            #print('SCA', name)
+
+      if triangulize:
+         newsurf = mv.CreateUGrid(nodes_new, cells, ctype='triangle', 
+                   scalars=scalardata, vectors=vecdata, polydata=True)
+      else:
+         newsurf = mv.CreateUGrid(nodes_new, cells, ctype='quad', 
+                   scalars=scalardata, vectors=vecdata, polydata=True)
+
+      #TODO unwrap the cylindrical surface with arbitrary axis
+      # compute vec = xx - xCen
+      #vec =  
+      # compute projection on to axis, xx = vec dot axis
+      # compute cross product vec cross axis for radial distance and 
+      # tangential vector
+      # project radial vector on y and z axis for computing theta 
+      
+      # Set viewing direction
+      #xplot, yplot = self.getPlotXY(nodes, view, flip)
+      # Convert 3D nodes to 2D coord system on the cut surface
+       
+      if triangulize:
+         triangulation = tri.Triangulation(plotx, ploty, cells)
+      else:
+         triangulation = None
+       
+      # save cut for later use if slicename is specified
+      if slicename:
+         self.cuts[slicename] = \
+         {'vtkcut':newsurf, 'type':'cylinder', 'triangulation':triangulation, 
+         'radius':radius, 'center':center, 'axis':axis, 'view':view, 'flip':flip}
+         print('Slice '+slicename+': Xrange',pxrange,' Yrange',pyrange)
+      
+      return newsurf, triangulation
 
    #def makeClip(self, clip_limit, center, normal, clipname=None, source=None):
    #   """
@@ -542,17 +651,24 @@ class Grid():
 
    #   self.clips[clipname] = data
 
-   def makeClip(self, center, normal, clipname=None, source=None, data=None):
+   def makeClip(self, center, normal=None, axis=None, radius=None, 
+              clipname=None, source=None, data=None, insideout=False):
       """
-      make a clip
+      make a clip, planar or cylindrical
       ---
       input param:
       """
       if data is None:
          data = self.data
+      if normal:
+         clip_plane = mv.CreatePlaneFunction(center,normal)
+      elif  axis and radius:
+         clip_plane = mv.CreateCylinderFunction(center,axis,radius)
+      else:
+         print('Error: not enough info for clipping')
 
-      clip_plane = mv.CreatePlaneFunction(center,normal)
-      data_clip = mv.Clip(data, clip_plane)
+      data_clip = mv.Clip(data, clip_plane, insideout=insideout)
+
       if clipname is not None:
          self.clips[clipname] = data_clip
       
@@ -644,6 +760,10 @@ class Grid():
 
       return data_trans
 
+   def customProcess(self, cdict, processFun):
+      self.data = processFun(cdict, self.data, self.transform, self.makeClip)
+      
+
    def probFlowField(self, points, varlist, source=None):
       """
       prob flow field variables at a list of locations 
@@ -680,7 +800,7 @@ class Grid():
 
       return data
 
-   def computeCustomVar(self, inputvars, outputvar, compute_fun):
+   def computeCustomVar(self, inputvars, compute_fun):
       """
       compute a customized variable by passing a function: compute_fun
       """
@@ -694,13 +814,20 @@ class Grid():
          elif varname in allvars: 
             inputvar_dic[varname] = vtk_to_numpy(mv.GetArray(data, varname))
          else:
-            print(varname+' DO NOT EXIST!!!!')
+            self.computeVar([varname])
+            inputvar_dic[varname] = vtk_to_numpy(mv.GetArray(data, varname))
+            
+            #print(varname+' DO NOT EXIST!!!!')
 
-      outputvar_array = compute_fun(inputvar_dic, self)
+      outputvar_dic = compute_fun(inputvar_dic, self)
 
-      if outputvar not in self.vars:
-         data = mv.AddNewArray(data, outputvar_array, outputvar)      
-         self.vars.append(outputvar)
+      for outputvar in outputvar_dic:
+         if outputvar not in self.vars:
+            data = mv.AddNewArray(data, outputvar_dic[outputvar], outputvar)      
+            self.vars.append(outputvar)
+            print('add new variable:', outputvar)
+
+      self.updateDRange()
 
 
    def computeVar(self, varlist):
@@ -737,7 +864,10 @@ class Grid():
       v_cyl = utils.CartToCyl(v,'vector', nodes_cyl[:,1])  # Velocity in cyl
 
       if 'RPM' in self.caseOptions:
+         rot_dir = self.caseOptions['rotation']
          omega = self.caseOptions['RPM']*2*np.pi/60.0
+         if rot_dir == 'ccw':
+            omega = -1*omega
          w_cyl = np.zeros((N,3))                        # Compute relative velocity
          w_cyl[:,0] = v_cyl[:,0]
          w_cyl[:,1] = v_cyl[:,1] + omega*nodes_cyl[:,0]
@@ -814,21 +944,27 @@ class Grid():
          data = mv.AddNewArray(data,vmag,'Vmag')      
          self.vars.append('Vmag')
 
-      if 'pt/ptref' in varlist and 'pt/ptref' not in self.vars:
-         ptref = self.caseOptions['ref_vals']['pt']
-         data = mv.AddNewArray(data, Pt/ptref,'pt/ptref')      
-         self.vars.append('pt/ptref')
+      #if 'pt/ptref' in varlist and 'pt/ptref' not in self.vars:
+      #   ptref = self.caseOptions['ref_vals']['pt']
+      #   data = mv.AddNewArray(data, Pt/ptref,'pt/ptref')      
+      #   self.vars.append('pt/ptref')
 
-      if 'p/pref' in varlist and 'p/pref' not in self.vars:
-         pref = self.caseOptions['ref_vals']['p']
-         data = mv.AddNewArray(data, P/pref,'p/pref')      
-         self.vars.append('p/pref')
+      #if 'p/pref' in varlist and 'p/pref' not in self.vars:
+      #   pref = self.caseOptions['ref_vals']['p']
+      #   data = mv.AddNewArray(data, P/pref,'p/pref')      
+      #   self.vars.append('p/pref')
 
-      if 'v/vref' in varlist and 'v/vref' not in self.vars:
-         vref = self.caseOptions['ref_vals']['V']
-         vmag = np.linalg.norm(v, axis=1)
-         data = mv.AddNewArray(data,vmag/vref,'v/vref')      
-         self.vars.append('v/vref')
+      #if 'Tt/Ttref' in varlist and 'Tt/Ttref' not in self.vars:
+      #   ttref = self.caseOptions['ref_vals']['Tt']
+      #   Tt = T/((1+(1.4-1)/2*mach**2)**(-1))              # total temperature
+      #   data = mv.AddNewArray(data, Tt/ttref,'Tt/Ttref')      
+      #   self.vars.append('Tt/Ttref')
+
+      #if 'v/vref' in varlist and 'v/vref' not in self.vars:
+      #   vref = self.caseOptions['ref_vals']['V']
+      #   vmag = np.linalg.norm(v, axis=1)
+      #   data = mv.AddNewArray(data,vmag/vref,'v/vref')      
+      #   self.vars.append('v/vref')
 
       # == Turbomachinery Variables ==
       if 'alpha' in varlist and 'alpha' not in self.vars:
@@ -857,6 +993,11 @@ class Grid():
          wmag = np.linalg.norm(w, axis=1)
          data = mv.AddNewArray(data,wmag,'Wmag')      
          self.vars.append('Wmag')
+      if 'Mr' in varlist and 'Mr' not in self.vars:
+         wmag = np.linalg.norm(w, axis=1)
+         Mr = wmag/np.sqrt(1.4*287.0*T)
+         data = mv.AddNewArray(data, Mr,'Mr')      
+         self.vars.append('Mr')
       if 'Wt' in varlist and 'Wt' not in self.vars:
          data = mv.AddNewArray(data,w_cyl[:,1],'Wt')      
          self.vars.append('Wt')
@@ -864,15 +1005,23 @@ class Grid():
          Pmechloc = v[:,0]*(Pt-101325.0) # flow mechanical power local
          data = mv.AddNewArray(data,Pmechloc,'Pmech')      
          self.vars.append('Pmech')
+      if 'MB' in varlist and 'MB' not in self.vars:
+         mbloc = rho*v[:,0]**2
+         data = mv.AddNewArray(data,mbloc,'MB')      
+         self.vars.append('MB')
       if 'PK' in varlist and 'PK' not in self.vars:
          vmag = np.linalg.norm(v, axis=1)
          PK = v[:,0]*((P+0.5*rho*vmag**2) - (self.infs[varnames['p']]+0.5*self.infs[varnames['rho']]*self.infs[varnames['V']]**2))
          data = mv.AddNewArray(data,PK,'PK')      
          self.vars.append('PK')
       if 'phi' in varlist and 'phi' not in self.vars:
-         phi = v[:,0]/(self.caseOptions['tip_radius']*omega)
+         phi = v[:,0]/(self.caseOptions['tip_radius']*abs(omega))
          data = mv.AddNewArray(data,phi,'phi')      
          self.vars.append('phi')
+      if 'J' in varlist and 'J' not in self.vars:
+         J = v[:,0]/(self.caseOptions['tip_radius']*2.0*self.caseOptions['RPM']/60.0)
+         data = mv.AddNewArray(data,J,'J')      
+         self.vars.append('J')
 
       self.updateDRange()
 
@@ -974,7 +1123,7 @@ class Grid():
 
 
    ## ====== Import export functions ====== ##
-   def importCGNS(self, filename, datatype, overset):
+   def importCGNS(self, filename, datatype, overset, per_copy=None):
       """
       Import cgns files 
       Note you must have cgnsTools installed which includes 'cgns_to_vtk'
@@ -990,13 +1139,19 @@ class Grid():
          print('Domain names not specified in the case options thruough: domlist, try reading .vtk files in current dir')
          all_domname_key = self.caseOptions['domname_key'] 
          for domname_key in all_domname_key:
-            print('Found domains: ', glob.glob(domname_key))
-            for vtkfile in glob.glob(domname_key):
+            print('Found domains: ', glob.glob(domname_key+'*.vtk'))
+            for vtkfile in glob.glob(domname_key+'*.vtk'):
                domlist.append(vtkfile) 
          #return False
 
       self.caseOptions['nblk']= len(domlist)
       self.data_doms = []
+
+      if per_copy:
+         perangle = per_copy['angle']
+         nccw = per_copy['nccw']
+         ncw = per_copy['ncw']
+
       # loop through cgns doms
       for dom in domlist:
          self.data_doms.append(mv.ReadVTKFile(dom))
@@ -1011,6 +1166,14 @@ class Grid():
          self.data = self.data_doms[0]
 
       # Determine type of grid
+
+      if per_copy:
+         domlist=[self.data]
+         for ii in range(nccw):
+            domlist.append(mv.Transform(self.data,[0,0,0],[perangle*(ii+1),1,0,0])) 
+         for ii in range(ncw):
+            domlist.append(mv.Transform(self.data,[0,0,0],[-1.0*perangle*(ii+1),1,0,0]))
+         self.data = mv.combineDom(domlist)
 
       if overset:
          # Only keep compute cells
@@ -1064,11 +1227,11 @@ class Grid():
          self.vars.append(name)
 
 
-   def exportVTK(self, filename, varlist=None):
+   def exportVTK(self, filename, varlist=None, structured=False):
       if varlist:
          self.computeVar(varlist)
       data = self.data
-      mv.WriteVTKGridFile(data, filename)
+      mv.WriteVTKGridFile(data, filename, structured=structured)
       return
 
    def makePlot(self, array=None, axlim=None):

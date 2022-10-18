@@ -22,7 +22,7 @@ Developer:
 """
 
 ## Create unstructured grid
-def CreateUGrid(pts, conn, scalars=None, vectors=None, ctype='hex'):
+def CreateUGrid(pts, conn, scalars=None, vectors=None, ctype='hex',polydata=False):
    """
    Function to create a vtk unstructured grid
    (only support hex cells + nodal data for now)
@@ -54,6 +54,8 @@ def CreateUGrid(pts, conn, scalars=None, vectors=None, ctype='hex'):
          grid.InsertNextCell(vtk.VTK_HEXAHEDRON, 8, conn[i,:])
       elif ctype == 'quad':
          grid.InsertNextCell(vtk.VTK_QUAD, 4, conn[i,:])
+      elif ctype == 'triangle':
+         grid.InsertNextCell(vtk.VTK_TRIANGLE, 3, conn[i,:])
    # insert each scalar
    if scalars is not None:
       for name, scalar in scalars.items():
@@ -74,6 +76,12 @@ def CreateUGrid(pts, conn, scalars=None, vectors=None, ctype='hex'):
          for value in vector:
             array.InsertNextTuple(value)
          grid.GetPointData().AddArray(array)
+
+   if polydata:
+      geomfilter = vtk.vtkGeometryFilter()
+      geomfilter.SetInputData(grid)
+      geomfilter.Update()
+      grid = geomfilter
 
    return grid
 
@@ -170,14 +178,15 @@ def CreatePlaneFunction(origin,normal):
   plane.SetNormal(normal)
   return plane
 
-def CreateCylinderFunction(radius,center,rotatex,rotatey):
+def CreateCylinderFunction(center,axis, radius):
   cylinder = vtk.vtkCylinder()
   cylinder.SetRadius(radius)
   cylinder.SetCenter(center)
-  transf = vtk.vtkTransform()
-  transf.RotateX(rotatex)
-  transf.RotateY(rotatey)
-  cylinder.SetTransform(transf)
+  cylinder.SetAxis(axis)
+  #transf = vtk.vtkTransform()
+  #transf.RotateX(rotatex)
+  #transf.RotateY(rotatey)
+  #cylinder.SetTransform(transf)
   return cylinder
 
 # Definition of sources for probes
@@ -217,10 +226,14 @@ def CreatePlaneSource(origin,p1,p2,res1,res2):
   return plane
 
 # Clipping the dataset
-def Clip(inputdata, clipfunction):
+def Clip(inputdata, clipfunction, insideout=False):
   clipper = vtk.vtkClipDataSet()
   clipper.SetInputData(inputdata.GetOutput())
   clipper.SetClipFunction(clipfunction)
+  if insideout:
+     clipper.InsideOutOn()
+  else:
+     clipper.InsideOutOff()
   #clipper.GenerateClipScalarsOn()
   clipper.Update()
   return clipper
@@ -326,7 +339,8 @@ def GetCellVolume(source):
   vol = quality.GetOutput().GetCellData().GetArray('Quality')
   return vol
 
-def GetTriangles(source, neighbor=False):
+#def GetTriangles(source, neighbor=False):
+def GetCellIDs(source, nIDs=3, neighbor=False):
   '''
   Get triangle vertex indices from a vtkPolydata (for example a surface cut)
   '''
@@ -336,7 +350,8 @@ def GetTriangles(source, neighbor=False):
   for i in range(ncell):
      thisCell = polydata.GetCell(i)
      thisInd = []
-     for j in range(3):
+     nIDs = thisCell.GetPointIds().GetNumberOfIds()
+     for j in range(nIDs):
         thisInd.append(thisCell.GetPointId(j))
      #if neighbor:
      #   ncellids = vtk.vtkIdList()
@@ -1109,8 +1124,11 @@ def WriteVTKFile(data,filename):
    writer.SetFileName(filename)
    writer.Update()
 
-def WriteVTKGridFile(data,filename):
-   writer = vtk.vtkUnstructuredGridWriter()
+def WriteVTKGridFile(data,filename,structured=False):
+   if structured:
+      writer = vtk.vtkStructuredGridWriter()
+   else:
+      writer = vtk.vtkUnstructuredGridWriter()
    writer.SetInputData(data.GetOutput())
    writer.SetFileName(filename)
    writer.Update()
