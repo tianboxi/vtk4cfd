@@ -1,7 +1,7 @@
 # VTK4CFD
 VTK4CFD is a package designed to post-process CFD results and produce publishable flow visualization plots with simple lines of codes.
 This code is built based on python interface of the visualization tool kit (VTK) and plotting library matplotlib. 
-The author, Tianbo (Raye) Xie, is a PhD candidate at USC and he used this code to produce result plots for his thesis and publications.
+The author, Tianbo (Raye) Xie, is a PhD candidate at USC Aerodynamic Design and Research Lab (ADRL) and he used this code to produce result plots for his thesis and publications.
 Contact: tianboxi@usc.edu
 
 ## Supported File Formats
